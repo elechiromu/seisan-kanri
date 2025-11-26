@@ -1,0 +1,1341 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>生産管理システム（クラウド版）</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+import React, { useState, useEffect } from 'react';
+import { Plus, Search, Package, AlertCircle, Edit2, Trash2, Save, X, Calendar, Clock, CheckCircle, Users, Bell, Mail, RefreshCw, Cloud, Upload, Settings } from 'lucide-react';
+
+function InventoryManagement() {
+  const [activeTab, setActiveTab] = useState('materials');
+  const [materials, setMaterials] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [showFirebaseSetup, setShowFirebaseSetup] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
+  const [syncStatus, setSyncStatus] = useState('オフライン');
+  const [showPasteArea, setShowPasteArea] = useState(false);
+  const [pastedText, setPastedText] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [firebaseConfig, setFirebaseConfig] = useState({
+    apiKey: '',
+    authDomain: '',
+    databaseURL: '',
+    projectId: '',
+    storageBucket: '',
+    messagingSenderId: '',
+    appId: ''
+  });
+  const [materialForm, setMaterialForm] = useState({
+    name: '', code: '', quantity: '', unit: 'kg', location: '', minStock: '', notes: ''
+  });
+  const [orderForm, setOrderForm] = useState({
+    productName: '', customerName: '', quantity: '', unit: '個', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
+  });
+
+  // Firebase初期化チェック
+  useEffect(() => {
+    const savedConfig = localStorage.getItem('firebase-config');
+    if (savedConfig) {
+      const config = JSON.parse(savedConfig);
+      setFirebaseConfig(config);
+      initializeFirebase(config);
+    } else {
+      // 設定がない場合はローカルストレージから読み込み
+      loadFromLocalStorage();
+    }
+  }, []);
+
+  const initializeFirebase = async (config) => {
+    try {
+      if (!config.databaseURL) {
+        setSyncStatus('Firebase未設定');
+        return;
+      }
+
+      setSyncStatus('接続中...');
+      
+      // Firebase Realtime Databaseに接続
+      const dbRef = `${config.databaseURL}/inventory.json`;
+      
+      // データを取得
+      const response = await fetch(dbRef);
+      if (response.ok) {
+        const data = await response.json();
+        if (data) {
+          if (data.materials) setMaterials(data.materials);
+          if (data.orders) setOrders(data.orders);
+          setLastSync(new Date());
+          setSyncStatus('同期済み');
+        } else {
+          setSyncStatus('接続成功（データなし）');
+        }
+      } else {
+        setSyncStatus('接続エラー');
+      }
+
+      // 自動同期を設定（10秒ごと）
+      const interval = setInterval(() => {
+        syncFromFirebase(config);
+      }, 10000);
+
+      return () => clearInterval(interval);
+    } catch (error) {
+      console.error('Firebase初期化エラー:', error);
+      setSyncStatus('接続エラー');
+    }
+  };
+
+  const syncFromFirebase = async (config) => {
+    try {
+      if (!config.databaseURL) return;
+      
+      const dbRef = `${config.databaseURL}/inventory.json`;
+      const response = await fetch(dbRef);
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data) {
+          if (data.materials) setMaterials(data.materials);
+          if (data.orders) setOrders(data.orders);
+          setLastSync(new Date());
+          setSyncStatus('同期済み');
+        }
+      }
+    } catch (error) {
+      console.log('同期エラー:', error);
+      setSyncStatus('同期エラー');
+    }
+  };
+
+  const saveToFirebase = async (materialsData, ordersData) => {
+    try {
+      console.log('💾 保存開始:', { 材料数: materialsData.length, 注文数: ordersData.length });
+      
+      // まず、ローカルstateを即座に更新
+      setMaterials(materialsData);
+      setOrders(ordersData);
+      
+      if (!firebaseConfig.databaseURL) {
+        // Firebaseが設定されていない場合はローカルストレージに保存
+        localStorage.setItem('materials-list', JSON.stringify(materialsData));
+        localStorage.setItem('orders-list', JSON.stringify(ordersData));
+        setLastSync(new Date());
+        setSyncStatus('ローカル保存');
+        console.log('✅ ローカル保存完了');
+        return;
+      }
+
+      setSyncStatus('保存中...');
+      
+      const dbRef = `${firebaseConfig.databaseURL}/inventory.json`;
+      const response = await fetch(dbRef, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          materials: materialsData,
+          orders: ordersData,
+          lastUpdated: new Date().toISOString()
+        })
+      });
+
+      if (response.ok) {
+        setLastSync(new Date());
+        setSyncStatus('同期済み');
+        console.log('✅ Firebase保存完了');
+      } else {
+        throw new Error('Firebase保存失敗');
+      }
+    } catch (error) {
+      console.error('❌ 保存エラー:', error);
+      // エラーが出てもローカルstateは更新されているので問題なし
+      // ローカルストレージにバックアップ
+      localStorage.setItem('materials-list', JSON.stringify(materialsData));
+      localStorage.setItem('orders-list', JSON.stringify(ordersData));
+      setSyncStatus('保存エラー（ローカル保存済み）');
+      setLastSync(new Date());
+    }
+  };
+
+  const loadFromLocalStorage = () => {
+    try {
+      const materialsData = localStorage.getItem('materials-list');
+      if (materialsData) {
+        setMaterials(JSON.parse(materialsData));
+      }
+
+      const ordersData = localStorage.getItem('orders-list');
+      if (ordersData) {
+        setOrders(JSON.parse(ordersData));
+      }
+      
+      setSyncStatus('ローカルモード');
+    } catch (error) {
+      console.log('データ読み込みエラー:', error);
+    }
+  };
+
+  const saveMaterials = (newMaterials) => {
+    saveToFirebase(newMaterials, orders);
+  };
+
+  const saveOrders = (newOrders) => {
+    saveToFirebase(materials, newOrders);
+  };
+
+  const saveFirebaseConfig = () => {
+    localStorage.setItem('firebase-config', JSON.stringify(firebaseConfig));
+    alert('Firebase設定を保存しました。ページをリロードして接続します。');
+    setShowFirebaseSetup(false);
+    window.location.reload();
+  };
+
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (!file) {
+      console.log('ファイルが選択されていません');
+      return;
+    }
+
+    console.log('ファイル選択成功:', file.name);
+    
+    const reader = new FileReader();
+    
+    reader.onerror = () => {
+      alert('ファイルの読み込みに失敗しました');
+    };
+    
+    reader.onload = (e) => {
+      processImportedText(e.target.result);
+    };
+    
+    reader.readAsText(file, 'UTF-8');
+    event.target.value = '';
+  };
+
+  const handlePasteImport = () => {
+    if (!pastedText.trim()) {
+      alert('テキストを貼り付けてください');
+      return;
+    }
+    setIsProcessing(true);
+    setTimeout(() => {
+      processImportedText(pastedText);
+      setIsProcessing(false);
+    }, 100);
+  };
+
+  const processImportedText = (text) => {
+    try {
+      console.log('========================================');
+      console.log('📋 データ解析開始');
+      console.log('========================================');
+      console.log('文字数:', text.length.toLocaleString());
+      
+      // 「重点」「変更」「新規」などのノイズを除去
+      text = text.replace(/重点/g, '');
+      text = text.replace(/変更/g, '');
+      text = text.replace(/新規/g, '');
+      
+      // 注文番号で分割（125OR0007137のようなパターン）
+      const orderPattern = /(\d{3}OR\d{7})/g;
+      const matches = text.match(orderPattern);
+      
+      if (!matches) {
+        alert('注文番号が見つかりませんでした。テキストを確認してください。');
+        console.log('注文番号パターンが見つかりません');
+        return;
+      }
+      
+      console.log('検出された注文番号:', matches.length, '件');
+      console.log('注文番号リスト:', matches);
+      
+      const parsedData = [];
+      
+      // 注文番号で分割
+      const parts = text.split(orderPattern);
+      
+      for (let i = 1; i < parts.length; i += 2) {
+        const orderNumber = parts[i];
+        const content = parts[i + 1] || '';
+        
+        console.log('\n--- 処理中: ' + orderNumber + ' ---');
+        console.log('データ長:', content.length);
+        console.log('データの最初の200文字:', content.substring(0, 200));
+        
+        // 製品コード (様々なパターンに対応)
+        const productCodeMatch = content.match(/([A-Z0-9]{10,})/);
+        const productCode = productCodeMatch ? productCodeMatch[0] : '';
+        
+        // 数量と単位 (1,979個 や 50個 などに対応)
+        const quantityMatch = content.match(/([\d,]+)\s*個/);
+        const quantity = quantityMatch ? quantityMatch[1].replace(/,/g, '') : '';
+        
+        // 日付 (25/10/09のようなパターン)
+        const dateMatches = content.match(/(\d{2}\/\d{2}\/\d{2})/g);
+        let deliveryDate = '';
+        let orderDate = '';
+        
+        if (dateMatches && dateMatches.length > 0) {
+          deliveryDate = dateMatches[0];
+          if (dateMatches.length > 1) {
+            orderDate = dateMatches[dateMatches.length - 1];
+          }
+        }
+        
+        // 顧客名（事業部）
+        const customerMatch = content.match(/([^\s]+事業部)/);
+        const customerName = customerMatch ? customerMatch[1] : '';
+        
+        // 製品名（より柔軟なパターンマッチング）
+        let productName = productCode;
+        
+        // まず、事業部の後にある製品名を探す（最も正確）
+        const afterDepartment = content.split(/事業部/)[1];
+        if (afterDepartment) {
+          const productNameMatch = afterDepartment.match(/[\s\t]+([^\s\t][^\t]+?)[\s\t]+\d+[\s\t]+計画/);
+          if (productNameMatch) {
+            productName = productNameMatch[1].trim();
+          } else {
+            const simpleMatch = afterDepartment.match(/[\s\t]+([^\s\t].{5,50}?)[\s\t]/);
+            if (simpleMatch) {
+              productName = simpleMatch[1].trim();
+            }
+          }
+        }
+        
+        // もし製品名が見つからない場合は、冷却フィンなどの一般的な名称を探す
+        if (productName === productCode) {
+          const productNamePatterns = [
+            /冷却フィン[^\t]*/,
+            /ﾚｲｷﾔｸ[\s]*ﾌｲﾝ[^\t]*/,
+            /ﾌｲﾝ[^\t]*/,
+            /ヒートシンク/,
+            /アルミ板/,
+            /プレート/,
+            /入力回路フィン/
+          ];
+          
+          for (const pattern of productNamePatterns) {
+            const match = content.match(pattern);
+            if (match) {
+              productName = match[0].trim();
+              break;
+            }
+          }
+        }
+        
+        // 状態
+        let status = '出荷済';
+        if (content.includes('製造中')) {
+          status = '製造中';
+        } else if (content.includes('検査中')) {
+          status = '検査中';
+        } else if (content.includes('出荷準備')) {
+          status = '出荷準備';
+        } else if (content.includes('出荷済')) {
+          status = '出荷済';
+        }
+        
+        const order = {
+          id: Date.now() + Math.random(),
+          orderNumber: orderNumber,
+          productCode: productCode,
+          productName: productName,
+          customerName: customerName,
+          quantity: quantity,
+          unit: '個',
+          orderDate: orderDate,
+          deliveryDate: deliveryDate,
+          status: status,
+          notes: ''
+        };
+        
+        console.log('抽出結果:');
+        console.log('  注文番号:', order.orderNumber);
+        console.log('  製品コード:', order.productCode);
+        console.log('  製品名:', order.productName);
+        console.log('  顧客名:', order.customerName);
+        console.log('  数量:', order.quantity, order.unit);
+        console.log('  納期:', order.deliveryDate);
+        console.log('  受注日:', order.orderDate);
+        console.log('  状態:', order.status);
+        
+        parsedData.push(order);
+      }
+      
+      console.log('');
+      console.log('========================================');
+      console.log('✅ 解析完了');
+      console.log('========================================');
+      console.log('検出件数:', parsedData.length, '件');
+      console.log('');
+      
+      if (parsedData.length > 0) {
+        const newOrders = [...orders, ...parsedData];
+        saveOrders(newOrders);
+        alert(`${parsedData.length}件の注文を登録しました！`);
+        setShowPasteArea(false);
+        setPastedText('');
+        console.log('✅ データベースに保存完了');
+      } else {
+        alert('有効なデータが見つかりませんでした。F12キーを押してコンソールを確認してください。');
+      }
+      
+    } catch (error) {
+      console.error('エラー:', error);
+      alert('データの処理中にエラーが発生しました: ' + error.message);
+    }
+  };
+
+  const handleMaterialAdd = () => {
+    if (!materialForm.name || !materialForm.quantity) {
+      alert('材料名と数量は必須です');
+      return;
+    }
+    
+    const newMaterial = {
+      ...materialForm,
+      id: Date.now(),
+      quantity: parseFloat(materialForm.quantity) || 0,
+      minStock: parseFloat(materialForm.minStock) || 0
+    };
+    
+    saveMaterials([...materials, newMaterial]);
+    setMaterialForm({
+      name: '', code: '', quantity: '', unit: 'kg', location: '', minStock: '', notes: ''
+    });
+    setShowAddForm(false);
+    setEditingId(null);
+  };
+
+  const handleMaterialEdit = (material) => {
+    setEditingId(material.id);
+    setMaterialForm(material);
+    setShowAddForm(true);
+  };
+
+  const handleMaterialUpdate = () => {
+    const updatedMaterials = materials.map(m =>
+      m.id === editingId ? { ...materialForm, id: editingId } : m
+    );
+    saveMaterials(updatedMaterials);
+    setEditingId(null);
+    setMaterialForm({
+      name: '', code: '', quantity: '', unit: 'kg', location: '', minStock: '', notes: ''
+    });
+    setShowAddForm(false);
+  };
+
+  const handleMaterialDelete = (id) => {
+    console.log('削除ボタンクリック - ID:', id);
+    console.log('現在の材料数:', materials.length);
+    
+    const newMaterials = materials.filter(m => m.id !== id);
+    console.log('削除後の材料数:', newMaterials.length);
+    
+    saveMaterials(newMaterials);
+    alert('削除しました');
+  };
+
+  const handleOrderAdd = () => {
+    if (!orderForm.productName) {
+      alert('製品名は必須です');
+      return;
+    }
+    
+    const newOrder = {
+      ...orderForm,
+      id: Date.now(),
+      quantity: parseFloat(orderForm.quantity) || 0
+    };
+    
+    saveOrders([...orders, newOrder]);
+    setOrderForm({
+      productName: '', customerName: '', quantity: '', unit: '個', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
+    });
+    setShowAddForm(false);
+    setEditingId(null);
+  };
+
+  const handleOrderEdit = (order) => {
+    setEditingId(order.id);
+    setOrderForm(order);
+    setShowAddForm(true);
+  };
+
+  const handleOrderUpdate = () => {
+    const updatedOrders = orders.map(o =>
+      o.id === editingId ? { ...orderForm, id: editingId } : o
+    );
+    saveOrders(updatedOrders);
+    setEditingId(null);
+    setOrderForm({
+      productName: '', customerName: '', quantity: '', unit: '個', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
+    });
+    setShowAddForm(false);
+  };
+
+  const handleOrderDelete = (id) => {
+    console.log('========================================');
+    console.log('🗑️ 削除処理開始');
+    console.log('削除対象ID:', id);
+    console.log('削除前の注文数:', orders.length);
+    console.log('削除前の注文一覧:', orders.map(o => ({ id: o.id, name: o.productName })));
+    
+    const newOrders = orders.filter(o => o.id !== id);
+    console.log('削除後の注文数:', newOrders.length);
+    console.log('削除後の注文一覧:', newOrders.map(o => ({ id: o.id, name: o.productName })));
+    
+    console.log('💾 saveOrders関数を呼び出します...');
+    saveOrders(newOrders);
+    
+    console.log('✅ 削除処理完了');
+    console.log('========================================');
+    alert('削除しました');
+  };
+
+  const formatDate = (dateStr) => {
+    if (!dateStr) return '-';
+    return dateStr;
+  };
+
+  const getDeliveryBadge = (deliveryDate, status) => {
+    if (status === '完了' || status === '出荷済') {
+      return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+          <CheckCircle size={12} className="mr-1" />
+          完了
+        </span>
+      );
+    }
+
+    if (!deliveryDate) return null;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const [year, month, day] = deliveryDate.split('/').map(Number);
+    const delivery = new Date(2000 + year, month - 1, day);
+    
+    const diffTime = delivery - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+          <AlertCircle size={12} className="mr-1" />
+          納期超過
+        </span>
+      );
+    } else if (diffDays <= 3) {
+      return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+          <Clock size={12} className="mr-1" />
+          納期間近 ({diffDays}日)
+        </span>
+      );
+    } else if (diffDays <= 7) {
+      return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+          あと{diffDays}日
+        </span>
+      );
+    } else {
+      return (
+        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+          余裕あり
+        </span>
+      );
+    }
+  };
+
+  const filteredMaterials = materials.filter(m =>
+    m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (m.code && m.code.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (m.location && m.location.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  const filteredOrders = orders.filter(o =>
+    o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (o.customerName && o.customerName.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+
+  const lowStockItems = materials.filter(m => m.minStock && parseFloat(m.quantity) <= parseFloat(m.minStock));
+  const urgentOrders = orders.filter(o => {
+    if (o.status === '完了' || o.status === '出荷済' || !o.deliveryDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [year, month, day] = o.deliveryDate.split('/').map(Number);
+    const delivery = new Date(2000 + year, month - 1, day);
+    const diffDays = Math.ceil((delivery - today) / (1000 * 60 * 60 * 24));
+    return diffDays <= 3 && diffDays >= 0;
+  });
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-gradient-to-r from-blue-600 to-blue-800 text-white shadow-lg">
+        <div className="max-w-7xl mx-auto px-4 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Package size={32} />
+              <h1 className="text-3xl font-bold">生産管理システム（クラウド版）</h1>
+            </div>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => setShowFirebaseSetup(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-colors"
+              >
+                <Settings size={20} />
+                <span className="text-sm">クラウド設定</span>
+              </button>
+              <div className="flex items-center gap-6 text-sm">
+                <div className="flex items-center gap-2">
+                  <Package size={20} className="opacity-80" />
+                  <span>材料: {materials.length}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Calendar size={20} className="opacity-80" />
+                  <span>注文: {orders.length}</span>
+                </div>
+                {lowStockItems.length > 0 && (
+                  <div className="flex items-center gap-2 bg-yellow-500 px-3 py-1 rounded-full">
+                    <AlertCircle size={16} />
+                    <span className="font-bold">在庫警告: {lowStockItems.length}</span>
+                  </div>
+                )}
+              </div>
+              <div className="text-right">
+                <div className="text-sm opacity-90">最終同期</div>
+                <div className="text-xs">{lastSync ? lastSync.toLocaleTimeString('ja-JP') : '-'}</div>
+              </div>
+              <div className={`flex items-center gap-2 px-3 py-1 rounded-full ${
+                syncStatus === '同期済み' ? 'bg-green-500' :
+                syncStatus.includes('エラー') ? 'bg-red-500' :
+                syncStatus === 'ローカルモード' ? 'bg-gray-500' :
+                'bg-yellow-500'
+              }`}>
+                <Cloud size={16} />
+                <span className="text-sm font-medium">{syncStatus}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {showFirebaseSetup && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-auto">
+              <div className="p-6 border-b bg-blue-50">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-blue-900">Firebase設定（クラウド共有）</h3>
+                  <button
+                    onClick={() => setShowFirebaseSetup(false)}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6">
+                <div className="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
+                  <h4 className="font-bold text-green-900 mb-2">🔥 Firebaseの設定方法</h4>
+                  <ol className="text-sm text-green-800 space-y-2 list-decimal list-inside">
+                    <li><strong>Firebase Console</strong>にアクセス: <a href="https://console.firebase.google.com" target="_blank" className="text-blue-600 underline">https://console.firebase.google.com</a></li>
+                    <li><strong>新しいプロジェクトを作成</strong>（無料で使えます）</li>
+                    <li>プロジェクトを選択 → <strong>Realtime Database</strong> を作成</li>
+                    <li><strong>ルールを編集</strong>して以下のように変更:
+                      <pre className="bg-gray-800 text-white p-2 rounded mt-1 text-xs overflow-x-auto">
+{`{
+  "rules": {
+    ".read": true,
+    ".write": true
+  }
+}`}
+                      </pre>
+                    </li>
+                    <li>プロジェクト設定 → <strong>Firebase SDK snippet</strong> から設定をコピー</li>
+                    <li>下のフォームに貼り付けて保存</li>
+                  </ol>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">API Key *</label>
+                    <input
+                      type="text"
+                      value={firebaseConfig.apiKey}
+                      onChange={(e) => setFirebaseConfig({...firebaseConfig, apiKey: e.target.value})}
+                      placeholder="AIzaSyABC..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Database URL * (重要！)</label>
+                    <input
+                      type="text"
+                      value={firebaseConfig.databaseURL}
+                      onChange={(e) => setFirebaseConfig({...firebaseConfig, databaseURL: e.target.value})}
+                      placeholder="https://your-project.firebaseio.com"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Project ID</label>
+                    <input
+                      type="text"
+                      value={firebaseConfig.projectId}
+                      onChange={(e) => setFirebaseConfig({...firebaseConfig, projectId: e.target.value})}
+                      placeholder="your-project"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-6 flex gap-3">
+                  <button
+                    onClick={saveFirebaseConfig}
+                    className="flex-1 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-bold"
+                  >
+                    保存して接続
+                  </button>
+                  <button
+                    onClick={() => setShowFirebaseSetup(false)}
+                    className="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {showPasteArea && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
+            <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full my-8">
+              <div className="p-6 border-b bg-green-50 sticky top-0">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-green-900">e商買データを貼り付け</h3>
+                  <button
+                    onClick={() => {
+                      setShowPasteArea(false);
+                      setPastedText('');
+                    }}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6 max-h-[70vh] overflow-y-auto">
+                <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="font-bold text-blue-900 mb-2">📋 手順：</h4>
+                  <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
+                    <li>e商買の受注一覧ページを開く</li>
+                    <li>データをマウスで選択してコピー（Ctrl+C）</li>
+                    <li>下のボックスに貼り付け（Ctrl+V）</li>
+                    <li>「✓ 登録する」ボタンをクリック</li>
+                    <li>F12キーを押してコンソールで結果を確認</li>
+                  </ol>
+                </div>
+
+                <textarea
+                  value={pastedText}
+                  onChange={(e) => setPastedText(e.target.value)}
+                  placeholder="ここにe商買のデータを貼り付けてください..."
+                  className="w-full h-64 p-4 border border-gray-300 rounded-lg font-mono text-sm"
+                />
+              </div>
+
+              <div className="p-6 border-t bg-gray-50 sticky bottom-0">
+                <div className="flex gap-3">
+                  <button
+                    onClick={handlePasteImport}
+                    disabled={isProcessing}
+                    className="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center gap-2 disabled:bg-gray-400 font-bold text-lg"
+                  >
+                    {isProcessing ? (
+                      <>
+                        <RefreshCw size={20} className="animate-spin" />
+                        処理中...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle size={20} />
+                        ✓ 登録する
+                      </>
+                    )}
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      setShowPasteArea(false);
+                      setPastedText('');
+                    }}
+                    className="px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors font-bold"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {(lowStockItems.length > 0 || urgentOrders.length > 0) && (
+          <div className="space-y-3 mb-6">
+            {lowStockItems.length > 0 && (
+              <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded">
+                <div className="flex items-center">
+                  <AlertCircle className="text-yellow-600 mr-3" size={24} />
+                  <div>
+                    <h3 className="font-bold text-yellow-800">在庫警告</h3>
+                    <p className="text-yellow-700">
+                      {lowStockItems.length}件の材料が最小在庫を下回っています
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+            {urgentOrders.length > 0 && (
+              <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded">
+                <div className="flex items-center">
+                  <Clock className="text-red-600 mr-3" size={24} />
+                  <div>
+                    <h3 className="font-bold text-red-800">納期警告</h3>
+                    <p className="text-red-700">
+                      {urgentOrders.length}件の注文が納期間近または納期切れです
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="bg-white rounded-lg shadow-md mb-6">
+          <div className="border-b border-gray-200">
+            <div className="flex">
+              <button
+                onClick={() => { setActiveTab('materials'); setShowAddForm(false); setSearchTerm(''); }}
+                className={`flex-1 px-6 py-4 font-bold text-lg ${
+                  activeTab === 'materials'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <Package className="inline mr-2" size={20} />
+                在庫管理
+              </button>
+              <button
+                onClick={() => { setActiveTab('orders'); setShowAddForm(false); setSearchTerm(''); }}
+                className={`flex-1 px-6 py-4 font-bold text-lg ${
+                  activeTab === 'orders'
+                    ? 'text-blue-600 border-b-2 border-blue-600 bg-blue-50'
+                    : 'text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <Calendar className="inline mr-2" size={20} />
+                納期管理
+              </button>
+            </div>
+          </div>
+
+          <div className="p-6">
+            <div className="flex flex-col md:flex-row gap-4 mb-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-3 text-gray-400" size={20} />
+                <input
+                  type="text"
+                  placeholder={activeTab === 'materials' ? '材料名、品番、保管場所で検索...' : '製品名、顧客名で検索...'}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              <button
+                onClick={() => setShowAddForm(!showAddForm)}
+                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium"
+              >
+                <Plus size={20} />
+                {activeTab === 'materials' ? '材料を追加' : '注文を追加'}
+              </button>
+            </div>
+
+            {activeTab === 'orders' && !showAddForm && (
+              <div className="flex flex-col md:flex-row gap-2">
+                <button
+                  onClick={() => setShowPasteArea(true)}
+                  className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 font-medium"
+                >
+                  <Upload size={20} />
+                  e商買データを直接貼り付け
+                </button>
+                
+                <label className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 font-medium cursor-pointer">
+                  <Upload size={20} />
+                  ファイルから読み込み
+                  <input
+                    type="file"
+                    accept=".txt,.csv"
+                    onChange={handleFileSelect}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            )}
+
+            {activeTab === 'materials' && showAddForm && (
+              <div className="bg-gray-50 p-6 rounded-lg mb-6 border-2 border-blue-200">
+                <h3 className="text-xl font-bold mb-4 text-gray-800">
+                  {editingId ? '材料を編集' : '新規材料を追加'}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      材料名 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={materialForm.name}
+                      onChange={(e) => setMaterialForm({...materialForm, name: e.target.value})}
+                      placeholder="例: A5052 アルミ板"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">品番・型番</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={materialForm.code}
+                      onChange={(e) => setMaterialForm({...materialForm, code: e.target.value})}
+                      placeholder="例: AL-5052-100"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      数量 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={materialForm.quantity}
+                      onChange={(e) => setMaterialForm({...materialForm, quantity: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">単位</label>
+                    <select
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={materialForm.unit}
+                      onChange={(e) => setMaterialForm({...materialForm, unit: e.target.value})}
+                    >
+                      <option value="kg">kg</option>
+                      <option value="枚">枚</option>
+                      <option value="本">本</option>
+                      <option value="個">個</option>
+                      <option value="m">m</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">保管場所</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={materialForm.location}
+                      onChange={(e) => setMaterialForm({...materialForm, location: e.target.value})}
+                      placeholder="例: A棟-棚2-上段"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">最小在庫量</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={materialForm.minStock}
+                      onChange={(e) => setMaterialForm({...materialForm, minStock: e.target.value})}
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">備考</label>
+                    <textarea
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={materialForm.notes}
+                      onChange={(e) => setMaterialForm({...materialForm, notes: e.target.value})}
+                      placeholder="メモや補足情報"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-3">
+                  <button
+                    onClick={editingId ? handleMaterialUpdate : handleMaterialAdd}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  >
+                    <Save size={20} />
+                    {editingId ? '更新' : '追加'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAddForm(false);
+                      setEditingId(null);
+                      setMaterialForm({
+                        name: '', code: '', quantity: '', unit: 'kg', location: '', minStock: '', notes: ''
+                      });
+                    }}
+                    className="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'orders' && showAddForm && (
+              <div className="bg-gray-50 p-6 rounded-lg mb-6 border-2 border-blue-200">
+                <h3 className="text-xl font-bold mb-4 text-gray-800">
+                  {editingId ? '注文を編集' : '新規注文を追加'}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      製品名 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.productName}
+                      onChange={(e) => setOrderForm({...orderForm, productName: e.target.value})}
+                      placeholder="例: 冷却フィン"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">顧客名</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.customerName}
+                      onChange={(e) => setOrderForm({...orderForm, customerName: e.target.value})}
+                      placeholder="例: ○○株式会社"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">数量</label>
+                    <input
+                      type="number"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.quantity}
+                      onChange={(e) => setOrderForm({...orderForm, quantity: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">単位</label>
+                    <select
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.unit}
+                      onChange={(e) => setOrderForm({...orderForm, unit: e.target.value})}
+                    >
+                      <option value="個">個</option>
+                      <option value="セット">セット</option>
+                      <option value="枚">枚</option>
+                      <option value="本">本</option>
+                      <option value="kg">kg</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">受注日</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.orderDate}
+                      onChange={(e) => setOrderForm({...orderForm, orderDate: e.target.value})}
+                      placeholder="25/01/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">納期</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.deliveryDate}
+                      onChange={(e) => setOrderForm({...orderForm, deliveryDate: e.target.value})}
+                      placeholder="25/01/27"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">状態</label>
+                    <select
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.status}
+                      onChange={(e) => setOrderForm({...orderForm, status: e.target.value})}
+                    >
+                      <option value="製造中">製造中</option>
+                      <option value="検査中">検査中</option>
+                      <option value="出荷準備">出荷準備</option>
+                      <option value="出荷済">出荷済</option>
+                      <option value="完了">完了</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">備考</label>
+                    <textarea
+                      rows={3}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.notes}
+                      onChange={(e) => setOrderForm({...orderForm, notes: e.target.value})}
+                      placeholder="特記事項や補足情報"
+                    />
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-3">
+                  <button
+                    onClick={editingId ? handleOrderUpdate : handleOrderAdd}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  >
+                    <Save size={20} />
+                    {editingId ? '更新' : '追加'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAddForm(false);
+                      setEditingId(null);
+                      setOrderForm({
+                        productName: '', customerName: '', quantity: '', unit: '個', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
+                      });
+                    }}
+                    className="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'materials' && !showAddForm && (
+              <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                <div className="p-4 bg-gray-100 border-b">
+                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <Package size={24} />
+                    材料一覧 ({filteredMaterials.length}件)
+                  </h2>
+                </div>
+                
+                {filteredMaterials.length === 0 ? (
+                  <div className="p-12 text-center text-gray-500">
+                    <Package size={48} className="mx-auto mb-4 opacity-50" />
+                    <p className="text-lg">登録された材料がありません</p>
+                    <p className="text-sm mt-2">「材料を追加」ボタンから登録してください</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b-2 border-gray-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">材料名</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">品番</th>
+                          <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">数量</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">保管場所</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">状態</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredMaterials.map((material, index) => {
+                          const isLowStock = material.minStock && parseFloat(material.quantity) <= parseFloat(material.minStock);
+                          return (
+                            <tr key={material.id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-gray-900">{material.name}</div>
+                                {material.notes && <div className="text-xs text-gray-500 mt-1">{material.notes}</div>}
+                              </td>
+                              <td className="px-4 py-3 text-gray-700">{material.code || '-'}</td>
+                              <td className="px-4 py-3 text-right">
+                                <span className={`font-bold ${isLowStock ? 'text-red-600' : 'text-gray-900'}`}>
+                                  {material.quantity}
+                                </span>
+                                <span className="text-gray-600 ml-1">{material.unit}</span>
+                              </td>
+                              <td className="px-4 py-3 text-gray-700">{material.location || '-'}</td>
+                              <td className="px-4 py-3">
+                                {isLowStock ? (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                    <AlertCircle size={12} className="mr-1" />
+                                    在庫少
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                    正常
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <div className="flex gap-2 justify-center">
+                                  <button
+                                    onClick={() => handleMaterialEdit(material)}
+                                    className="text-blue-600 hover:text-blue-800 p-1"
+                                    title="編集"
+                                  >
+                                    <Edit2 size={18} />
+                                  </button>
+                                  <button
+                                    onClick={() => handleMaterialDelete(material.id)}
+                                    className="text-red-600 hover:text-red-800 p-1"
+                                    title="削除"
+                                  >
+                                    <Trash2 size={18} />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'orders' && !showAddForm && (
+              <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                <div className="p-4 bg-gray-100 border-b">
+                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <Calendar size={24} />
+                    注文一覧 ({filteredOrders.length}件)
+                  </h2>
+                </div>
+                
+                {filteredOrders.length === 0 ? (
+                  <div className="p-12 text-center text-gray-500">
+                    <Calendar size={48} className="mx-auto mb-4 opacity-50" />
+                    <p className="text-lg">登録された注文がありません</p>
+                    <p className="text-sm mt-2">「注文を追加」ボタンまたは「e商買データを直接貼り付け」から登録してください</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b-2 border-gray-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">製品名</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">顧客名</th>
+                          <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">数量</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">受注日</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">納期</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">状態</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">納期状況</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filteredOrders.map((order, index) => (
+                          <tr key={order.id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-gray-900">{order.productName}</div>
+                              {order.notes && <div className="text-xs text-gray-500 mt-1">{order.notes}</div>}
+                            </td>
+                            <td className="px-4 py-3 text-gray-700">{order.customerName || '-'}</td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="font-bold text-gray-900">{order.quantity || '-'}</span>
+                              {order.quantity && <span className="text-gray-600 ml-1">{order.unit}</span>}
+                            </td>
+                            <td className="px-4 py-3 text-gray-700">{formatDate(order.orderDate)}</td>
+                            <td className="px-4 py-3 text-gray-900 font-medium">{formatDate(order.deliveryDate)}</td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                                order.status === '完了' ? 'bg-gray-100 text-gray-800' :
+                                order.status === '出荷準備' ? 'bg-blue-100 text-blue-800' :
+                                order.status === '検査中' ? 'bg-purple-100 text-purple-800' :
+                                order.status === '製造中' ? 'bg-yellow-100 text-yellow-800' :
+                                'bg-green-100 text-green-800'
+                              }`}>
+                                {order.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">
+                              {getDeliveryBadge(order.deliveryDate, order.status)}
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex gap-2 justify-center">
+                                <button
+                                  onClick={() => handleOrderEdit(order)}
+                                  className="text-blue-600 hover:text-blue-800 p-1"
+                                  title="編集"
+                                >
+                                  <Edit2 size={18} />
+                                </button>
+                                <button
+                                  onClick={() => handleOrderDelete(order.id)}
+                                  className="text-red-600 hover:text-red-800 p-1"
+                                  title="削除"
+                                >
+                                  <Trash2 size={18} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h3 className="font-bold text-blue-900 mb-2 flex items-center gap-2">
+            <Cloud size={20} />
+            クラウド共有について
+          </h3>
+          <ul className="text-sm text-blue-800 space-y-1">
+            <li>• <strong>Firebase設定後:</strong> 全デバイスでリアルタイム同期されます</li>
+            <li>• <strong>対応デバイス:</strong> Mac、Windows、iPhone、Android、iPad すべてOK</li>
+            <li>• <strong>複数人で共有:</strong> 同じFirebaseプロジェクトを使えば5人でも10人でも共有可能</li>
+            <li>• <strong>設定前:</strong> ローカルモードで動作（ブラウザのみで保存）</li>
+          </ul>
+        </div>
+
+        <div className="mt-4 bg-green-50 border border-green-200 rounded-lg p-4">
+          <h3 className="font-bold text-green-900 mb-2 flex items-center gap-2">
+            <Upload size={20} />
+            e商買データの一括登録
+          </h3>
+          <p className="text-sm text-green-800">
+            納期管理タブから「e商買データを直接貼り付け」ボタンをクリックしてデータを登録できます。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Render the app
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<InventoryManagement />);
+  </script>
+</body>
+</html>
