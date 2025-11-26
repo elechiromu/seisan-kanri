@@ -248,10 +248,14 @@ function InventoryManagement() {
       console.log('========================================');
       console.log('文字数:', text.length.toLocaleString());
       
-      // 「重点」「変更」「新規」などのノイズを除去
+      // 「重点」「変更」「新規」「出荷済」「製造中」などのノイズを除去
       text = text.replace(/重点/g, '');
       text = text.replace(/変更/g, '');
       text = text.replace(/新規/g, '');
+      text = text.replace(/出荷済/g, '');
+      text = text.replace(/製造中/g, '');
+      text = text.replace(/検査中/g, '');
+      text = text.replace(/出荷準備/g, '');
       
       // 注文番号で分割（125OR0007137のようなパターン）
       const orderPattern = /(\d{3}OR\d{7})/g;
