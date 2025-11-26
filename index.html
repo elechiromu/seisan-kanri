@@ -342,7 +342,7 @@ function InventoryManagement() {
         }
         
         // 状態
-        let status = '出荷済';
+        let status = '製造中';  // デフォルトを製造中に変更
         if (content.includes('製造中')) {
           status = '製造中';
         } else if (content.includes('検査中')) {
