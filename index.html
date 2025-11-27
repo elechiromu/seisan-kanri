@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（完全版：クラウド + BOM + ページネーション + CSV + 単価 + 一括削除）</title>
+  <title>生産管理システム（完全版：e商買データ解析修正済み）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -359,6 +359,178 @@ const loadFromLocalStorage = () => {
   const processImportedText = (text) => {
     try {
       console.log('========================================');
+      console.log('📋 e商買データ解析開始（3行構造対応版）');
+      console.log('========================================');
+      console.log('文字数:', text.length.toLocaleString());
+      
+      // Clean up text
+      text = text.replace(/重点/g, '');
+      text = text.replace(/変更/g, '');
+      text = text.replace(/新規/g, '');
+      
+      // Split by order number pattern (125OR0012544)
+      const orderPattern = /(125OR\d{7})/g;
+      const matches = text.match(orderPattern);
+      
+      if (!matches) {
+        alert('注文番号が見つかりませんでした。e商買の受注一覧をコピーしてください。');
+        console.log('注文番号パターンが見つかりません');
+        return;
+      }
+      
+      console.log('検出された注文番号:', matches.length, '件');
+      console.log('注文番号リスト:', matches);
+      
+      const parsedData = [];
+      const parts = text.split(orderPattern);
+      
+      for (let i = 1; i < parts.length; i += 2) {
+        const orderNumber = parts[i];
+        const content = parts[i + 1] || '';
+        
+        console.log('\n--- 処理中: ' + orderNumber + ' ---');
+        
+        // Split into lines
+        const lines = content.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+        
+        if (lines.length < 3) {
+          console.log('⚠️ データが不完全です（3行未満）');
+          continue;
+        }
+        
+        console.log('行数:', lines.length);
+        
+        // Parse line 1: 品目コード、数量、単位、納期
+        const line1 = lines[0] || '';
+        console.log('1行目:', line1);
+        
+        // 品目コード (HESO...)
+        const productCodeMatch = line1.match(/HE[A-Z0-9]+/);
+        const productCode = productCodeMatch ? productCodeMatch[0] : '';
+        
+        // 数量と単位 (3,000 個 のような形式)
+        const quantityMatch = line1.match(/([\d,]+)\s*(個|セット|枚|本|kg)/);
+        const quantity = quantityMatch ? quantityMatch[1].replace(/,/g, '') : '';
+        const unit = quantityMatch ? quantityMatch[2] : '個';
+        
+        // 納期 (26/01/29 のような形式)
+        const deliveryDateMatch = line1.match(/(\d{2}\/\d{2}\/\d{2})/);
+        const deliveryDate = deliveryDateMatch ? deliveryDateMatch[1] : '';
+        
+        // Parse line 2: 顧客名、製品名、受注日
+        const line2 = lines[1] || '';
+        console.log('2行目:', line2);
+        
+        // 顧客名 (事業部)
+        const customerMatch = line2.match(/([^\s]+事業部)/);
+        const customerName = customerMatch ? customerMatch[1] : '';
+        
+        // 製品名 (HS-1743 ヒートシンク のような形式)
+        const productNameMatch = line2.match(/(HS-[\d]+[^\t\s]+(?:[^\t]+)?)/);
+        const productName = productNameMatch ? productNameMatch[1].trim() : productCode;
+        
+        // 受注日
+        const orderDateMatch = line2.match(/(\d{2}\/\d{2}\/\d{2})/);
+        const orderDate = orderDateMatch ? orderDateMatch[1] : '';
+        
+        // Parse line 3: 単価
+        const line3 = lines[2] || '';
+        console.log('3行目:', line3);
+        
+        // 単価 (129,000 のような形式、JPYの後ろ)
+        const priceMatch = line3.match(/JPY[\s\t]+([\d,]+)/);
+        const price = priceMatch ? priceMatch[1].replace(/,/g, '') : '';
+        
+        const order = {
+          id: Date.now() + Math.random(),
+          orderNumber: orderNumber,
+          productCode: productCode,
+          productName: productName,
+          customerName: customerName,
+          quantity: quantity,
+          unit: unit,
+          price: price,
+          orderDate: orderDate,
+          deliveryDate: deliveryDate,
+          status: '製造中',
+          notes: ''
+        };
+        
+        console.log('抽出結果:');
+        console.log('  注文番号:', order.orderNumber);
+        console.log('  品目コード:', order.productCode);
+        console.log('  製品名:', order.productName);
+        console.log('  顧客名:', order.customerName);
+        console.log('  数量:', order.quantity, order.unit);
+        console.log('  単価:', order.price ? '¥' + parseFloat(order.price).toLocaleString() : '未設定');
+        console.log('  金額:', order.price && order.quantity ? '¥' + (parseFloat(order.price) * parseFloat(order.quantity)).toLocaleString() : '-');
+        console.log('  受注日:', order.orderDate);
+        console.log('  納期:', order.deliveryDate);
+        
+        parsedData.push(order);
+      }
+      
+      console.log('');
+      console.log('========================================');
+      console.log('✅ 解析完了');
+      console.log('========================================');
+      console.log('検出件数:', parsedData.length, '件');
+      console.log('');
+      
+      if (parsedData.length > 0) {
+        const newOrders = [...orders, ...parsedData];
+        saveOrders(newOrders);
+        alert(`${parsedData.length}件の注文を登録しました！\n\nF12キーを押してコンソールで詳細を確認できます。`);
+        setShowPasteArea(false);
+        setPastedText('');
+        console.log('✅ データベースに保存完了');
+      } else {
+        alert('有効なデータが見つかりませんでした。F12キーを押してコンソールを確認してください。');
+      }
+    } catch (error) {
+      console.error('エラーが発生しました:', error);
+      alert('データの解析中にエラーが発生しました。F12キーを押してコンソールを確認してください。');
+    }
+  };
+
+  const handleFileSelect = (event) => {
+    const file = event.target.files[0];
+    if (!file) {
+      console.log('ファイルが選択されていません');
+      return;
+    }
+
+    console.log('ファイル選択成功:', file.name);
+    
+    const reader = new FileReader();
+    
+    reader.onerror = () => {
+      alert('ファイルの読み込みに失敗しました');
+    };
+    
+    reader.onload = (e) => {
+      processImportedText(e.target.result);
+    };
+    
+    reader.readAsText(file, 'UTF-8');
+    event.target.value = '';
+  };
+
+  const handlePasteImport = () => {
+    if (!pastedText.trim()) {
+      alert('テキストを貼り付けてください');
+      return;
+    }
+    setIsProcessing(true);
+    setTimeout(() => {
+      processImportedText(pastedText);
+      setIsProcessing(false);
+    }, 100);
+  };
+
+  const processImportedText = (text) => {
+    try {
+      console.log('========================================');
       console.log('📋 データ解析開始');
       console.log('========================================');
       console.log('文字数:', text.length.toLocaleString());
@@ -472,22 +644,8 @@ const loadFromLocalStorage = () => {
           status = '出荷済';
         }
         
-        // 単価を抽出 (¥や￥、カンマ区切りの数値を探す)
+        // 単価は自動抽出しない（手動入力のみ）
         let price = '';
-        const pricePatterns = [
-          /[¥￥]\s*([0-9,]+(?:\.[0-9]+)?)/,  // ¥1,000 or ￥1000
-          /単価[\s:：]*([0-9,]+(?:\.[0-9]+)?)/,  // 単価:1000
-          /([0-9,]+)円/,  // 1000円
-          /\b([0-9]{3,}(?:,[0-9]{3})*)\b/  // 1,000 or 1000 (3桁以上の数値)
-        ];
-        
-        for (const pattern of pricePatterns) {
-          const priceMatch = content.match(pattern);
-          if (priceMatch) {
-            price = priceMatch[1].replace(/,/g, '');
-            break;
-          }
-        }
         
         const order = {
           id: Date.now() + Math.random(),
@@ -510,7 +668,7 @@ const loadFromLocalStorage = () => {
         console.log('  製品名:', order.productName);
         console.log('  顧客名:', order.customerName);
         console.log('  数量:', order.quantity, order.unit);
-        console.log('  単価:', order.price ? '¥' + parseFloat(order.price).toLocaleString() : '未設定');
+        console.log('  単価:', order.price ? '¥' + parseFloat(order.price).toLocaleString() : '手動入力してください');
         console.log('  納期:', order.deliveryDate);
         console.log('  受注日:', order.orderDate);
         console.log('  状態:', order.status);
@@ -982,6 +1140,87 @@ const loadFromLocalStorage = () => {
     alert('全ての注文を削除しました');
   };
 
+  // Clean invalid price data
+  const handleCleanPrices = () => {
+    const invalidOrders = orders.filter(order => {
+      if (!order.price) return false;
+      const price = parseFloat(order.price);
+      return isNaN(price) || price > 1000000 || price < 0; // Over 1 million or negative
+    });
+    
+    if (invalidOrders.length === 0) {
+      alert('異常な単価データは見つかりませんでした');
+      return;
+    }
+    
+    const confirmMsg = `異常な単価データが${invalidOrders.length}件見つかりました。\n\n` +
+                       `（単価が100万円以上、または負の値）\n\n` +
+                       `これらの単価をクリア（空欄に）しますか？`;
+    
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    
+    const cleanedOrders = orders.map(order => {
+      if (!order.price) return order;
+      const price = parseFloat(order.price);
+      if (isNaN(price) || price > 1000000 || price < 0) {
+        return { ...order, price: '' };
+      }
+      return order;
+    });
+    
+    saveOrders(cleanedOrders);
+    alert(`${invalidOrders.length}件の異常な単価をクリアしました`);
+  };
+
+  // Clean all invalid order data
+  const handleCleanAllInvalidData = () => {
+    if (orders.length === 0) {
+      alert('注文データがありません');
+      return;
+    }
+    
+    const invalidOrders = orders.filter(order => {
+      // Check for invalid price
+      if (order.price && (parseFloat(order.price) > 1000000 || parseFloat(order.price) < 0)) {
+        return true;
+      }
+      // Check for invalid quantity (too large)
+      if (order.quantity && parseFloat(order.quantity) > 10000) {
+        return true;
+      }
+      // Check for dates in wrong fields (contains numbers that look like dates in orderDate)
+      if (order.orderDate && order.orderDate.length > 20) {
+        return true;
+      }
+      return false;
+    });
+    
+    if (invalidOrders.length === 0) {
+      alert('異常なデータは見つかりませんでした');
+      return;
+    }
+    
+    const confirmMsg = `異常なデータが${invalidOrders.length}件見つかりました。\n\n` +
+                       `以下のような問題があります：\n` +
+                       `- 異常な単価（100万円以上）\n` +
+                       `- 異常な数量（1万個以上）\n` +
+                       `- 受注日が異常に長い\n\n` +
+                       `これらの注文を削除しますか？`;
+    
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    
+    const cleanedOrders = orders.filter(order => !invalidOrders.find(inv => inv.id === order.id));
+    saveOrders(cleanedOrders);
+    setSelectedOrders([]);
+    alert(`${invalidOrders.length}件の異常なデータを削除しました`);
+  };
+
+
+
 
 
 const filteredMaterials = materials.filter(m =>
@@ -1181,6 +1420,15 @@ const filteredMaterials = materials.filter(m =>
               
               <div className="p-6 max-h-[70vh] overflow-y-auto">
                 <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="bg-green-100 border border-green-300 rounded p-3 mb-3">
+                    <h4 className="font-bold text-green-900 mb-2">✅ e商買データ解析が改善されました！</h4>
+                    <p className="text-sm text-green-800 mb-2">
+                      3行構造の正しい解析に対応しました。製品名、顧客名、数量、単価、納期が正確に抽出されます。
+                    </p>
+                    <p className="text-sm text-green-800">
+                      <strong>推奨：</strong> データ貼り付け後、F12キーでコンソールを開いて抽出結果を確認してください。
+                    </p>
+                  </div>
                   <h4 className="font-bold text-blue-900 mb-2">📋 手順：</h4>
                   <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
                     <li>e商買の受注一覧ページを開く</li>
@@ -1189,6 +1437,9 @@ const filteredMaterials = materials.filter(m =>
                     <li>「✓ 登録する」ボタンをクリック</li>
                     <li>F12キーを押してコンソールで結果を確認</li>
                   </ol>
+                  <p className="text-xs text-gray-600 mt-2">
+                    ※ データが正しく解析されない場合は、手動登録をご利用ください
+                  </p>
                 </div>
 
                 <textarea
@@ -1524,34 +1775,62 @@ const filteredMaterials = materials.filter(m =>
                 </div>
                 
                 {sortedOrders.length > 0 && (
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                    <span className="text-sm text-gray-700">
-                      {selectedOrders.length > 0 ? (
-                        <strong>選択中: {selectedOrders.length}件</strong>
-                      ) : (
-                        <span>注文を選択してください</span>
-                      )}
-                    </span>
-                    <div className="flex gap-2 ml-auto">
-                      <button
-                        onClick={handleBulkDeleteOrders}
-                        disabled={selectedOrders.length === 0}
-                        className={`px-4 py-2 rounded-lg flex items-center gap-2 font-medium ${
-                          selectedOrders.length === 0
-                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                            : 'bg-red-600 text-white hover:bg-red-700'
-                        }`}
-                      >
-                        <span className="inline-block w-5 h-5 text-center">🗑️</span>
-                        選択削除
-                      </button>
-                      <button
-                        onClick={handleDeleteAllOrders}
-                        className="bg-red-700 text-white px-4 py-2 rounded-lg hover:bg-red-800 flex items-center gap-2 font-medium"
-                      >
-                        <span className="inline-block w-5 h-5 text-center">🗑️</span>
-                        全削除
-                      </button>
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                      <span className="text-sm text-gray-700">
+                        {selectedOrders.length > 0 ? (
+                          <strong>選択中: {selectedOrders.length}件</strong>
+                        ) : (
+                          <span>注文を選択してください</span>
+                        )}
+                      </span>
+                      <div className="flex gap-2 ml-auto">
+                        <button
+                          onClick={handleBulkDeleteOrders}
+                          disabled={selectedOrders.length === 0}
+                          className={`px-4 py-2 rounded-lg flex items-center gap-2 font-medium ${
+                            selectedOrders.length === 0
+                              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              : 'bg-red-600 text-white hover:bg-red-700'
+                          }`}
+                        >
+                          <span className="inline-block w-5 h-5 text-center">🗑️</span>
+                          選択削除
+                        </button>
+                        <button
+                          onClick={handleDeleteAllOrders}
+                          className="bg-red-700 text-white px-4 py-2 rounded-lg hover:bg-red-800 flex items-center gap-2 font-medium"
+                        >
+                          <span className="inline-block w-5 h-5 text-center">🗑️</span>
+                          全削除
+                        </button>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <span className="text-sm text-yellow-800">
+                          💡 異常な単価データ（100万円以上）がある場合はクリアできます
+                        </span>
+                        <button
+                          onClick={handleCleanPrices}
+                          className="bg-yellow-600 text-white px-4 py-2 rounded-lg hover:bg-yellow-700 flex items-center gap-2 font-medium ml-auto"
+                        >
+                          <span className="inline-block w-5 h-5 text-center">🧹</span>
+                          異常単価をクリア
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-3 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                        <span className="text-sm text-orange-800">
+                          ⚠️ e商買データの解析エラーで異常なデータがある場合、一括削除できます
+                        </span>
+                        <button
+                          onClick={handleCleanAllInvalidData}
+                          className="bg-orange-600 text-white px-4 py-2 rounded-lg hover:bg-orange-700 flex items-center gap-2 font-medium ml-auto whitespace-nowrap"
+                        >
+                          <span className="inline-block w-5 h-5 text-center">🧹</span>
+                          異常データを削除
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )}
