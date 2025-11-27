@@ -1568,7 +1568,65 @@ const filteredMaterials = materials.filter(m =>
                     <p className="text-sm mt-2">「材料を追加」ボタンから登録してください</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <>
+                    {sortedMaterials && sortedMaterials.length > itemsPerPageMaterials && (
+                      <div className="mb-4 flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-gray-50 border rounded-lg gap-3">
+                        <div className="text-sm text-gray-700">
+                          {startIndexMaterials + 1} - {Math.min(endIndexMaterials, sortedMaterials.length)} 件 / 全 {sortedMaterials.length} 件
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap justify-center">
+                          <button
+                            onClick={() => setCurrentPageMaterials(1)}
+                            disabled={currentPageMaterials === 1}
+                            className={`px-3 py-1 rounded text-sm font-medium ${
+                              currentPageMaterials === 1
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            最初
+                          </button>
+                          <button
+                            onClick={() => setCurrentPageMaterials(currentPageMaterials - 1)}
+                            disabled={currentPageMaterials === 1}
+                            className={`px-3 py-1 rounded text-sm font-medium ${
+                              currentPageMaterials === 1
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            ← 前
+                          </button>
+                          <span className="px-4 py-1 bg-white border rounded text-sm">
+                            {currentPageMaterials} / {totalPagesMaterials}
+                          </span>
+                          <button
+                            onClick={() => setCurrentPageMaterials(currentPageMaterials + 1)}
+                            disabled={currentPageMaterials === totalPagesMaterials}
+                            className={`px-3 py-1 rounded text-sm font-medium ${
+                              currentPageMaterials === totalPagesMaterials
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            次 →
+                          </button>
+                          <button
+                            onClick={() => setCurrentPageMaterials(totalPagesMaterials)}
+                            disabled={currentPageMaterials === totalPagesMaterials}
+                            className={`px-3 py-1 rounded text-sm font-medium ${
+                              currentPageMaterials === totalPagesMaterials
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            最後
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b-2 border-gray-200">
                         <tr>
@@ -1711,6 +1769,8 @@ const filteredMaterials = materials.filter(m =>
                     </div>
                   </div>
                 )}
+                  </>
+                )}
               </div>
             )}
 
@@ -1731,7 +1791,65 @@ const filteredMaterials = materials.filter(m =>
                     <p className="text-sm mt-2">「注文を追加」ボタンまたは「e商買データを直接貼り付け」から登録してください</p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <>
+                    {sortedOrders && sortedOrders.length > itemsPerPageOrders && (
+                      <div className="mb-4 flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-gray-50 border rounded-lg gap-3">
+                        <div className="text-sm text-gray-700">
+                          {startIndexOrders + 1} - {Math.min(endIndexOrders, sortedOrders.length)} 件 / 全 {sortedOrders.length} 件
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap justify-center">
+                          <button
+                            onClick={() => setCurrentPageOrders(1)}
+                            disabled={currentPageOrders === 1}
+                            className={`px-3 py-1 rounded text-sm font-medium ${
+                              currentPageOrders === 1
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            最初
+                          </button>
+                          <button
+                            onClick={() => setCurrentPageOrders(currentPageOrders - 1)}
+                            disabled={currentPageOrders === 1}
+                            className={`px-3 py-1 rounded text-sm font-medium ${
+                              currentPageOrders === 1
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            ← 前
+                          </button>
+                          <span className="px-4 py-1 bg-white border rounded text-sm">
+                            {currentPageOrders} / {totalPagesOrders}
+                          </span>
+                          <button
+                            onClick={() => setCurrentPageOrders(currentPageOrders + 1)}
+                            disabled={currentPageOrders === totalPagesOrders}
+                            className={`px-3 py-1 rounded text-sm font-medium ${
+                              currentPageOrders === totalPagesOrders
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            次 →
+                          </button>
+                          <button
+                            onClick={() => setCurrentPageOrders(totalPagesOrders)}
+                            disabled={currentPageOrders === totalPagesOrders}
+                            className={`px-3 py-1 rounded text-sm font-medium ${
+                              currentPageOrders === totalPagesOrders
+                                ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                : 'bg-blue-600 text-white hover:bg-blue-700'
+                            }`}
+                          >
+                            最後
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    
+                    <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b-2 border-gray-200">
                         <tr>
@@ -1874,6 +1992,8 @@ const filteredMaterials = materials.filter(m =>
                       </button>
                     </div>
                   </div>
+                )}
+                  </>
                 )}
               </div>
             )}
