@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（クラウド版）</title>
+  <title>生産管理システム（クラウド版 + BOM）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -46,6 +46,13 @@ function InventoryManagement() {
   const [orderForm, setOrderForm] = useState({
     productName: '', customerName: '', quantity: '', unit: '個', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
   });
+  const [productMaster, setProductMaster] = useState([]);
+  const [productMasterForm, setProductMasterForm] = useState({
+    productName: '', materialName: '', materialAmount: '', materialUnit: 'kg'
+  });
+  const [showProductMasterForm, setShowProductMasterForm] = useState(false);
+  const [editingProductId, setEditingProductId] = useState(null);
+
 
   // Firebase初期化チェック
   useEffect(() => {
@@ -173,7 +180,102 @@ function InventoryManagement() {
     }
   };
 
-  const loadFromLocalStorage = () => {
+  
+  const saveProductMaster = (newProductMaster) => {
+    setProductMaster(newProductMaster);
+    localStorage.setItem('product-master', JSON.stringify(newProductMaster));
+  };
+
+  const checkMaterialStock = (productName, quantity) => {
+    const product = productMaster.find(p => 
+      productName.toLowerCase().includes(p.productName.toLowerCase()) ||
+      p.productName.toLowerCase().includes(productName.toLowerCase())
+    );
+    
+    if (!product) {
+      return { hasStock: true, warnings: [], product: null };
+    }
+    
+    const requiredAmount = parseFloat(product.materialAmount) * parseFloat(quantity || 1);
+    
+    const material = materials.find(m => 
+      m.name.toLowerCase().includes(product.materialName.toLowerCase()) ||
+      product.materialName.toLowerCase().includes(m.name.toLowerCase())
+    );
+    
+    if (!material) {
+      return { 
+        hasStock: false, 
+        warnings: [`材料「${product.materialName}」が在庫に登録されていません`],
+        product: product
+      };
+    }
+    
+    const currentStock = parseFloat(material.quantity || 0);
+    const shortage = requiredAmount - currentStock;
+    
+    if (shortage > 0) {
+      return {
+        hasStock: false,
+        warnings: [
+          `材料不足: ${product.materialName}`,
+          `必要: ${requiredAmount.toFixed(2)}${product.materialUnit}`,
+          `在庫: ${currentStock}${material.unit}`,
+          `不足: ${shortage.toFixed(2)}${product.materialUnit}`
+        ],
+        product: product,
+        shortage: shortage
+      };
+    }
+    
+    return { hasStock: true, warnings: [], product: product };
+  };
+
+  const handleProductMasterAdd = () => {
+    if (!productMasterForm.productName || !productMasterForm.materialName || !productMasterForm.materialAmount) {
+      alert('製品名、材料名、使用量は必須です');
+      return;
+    }
+    
+    const newProduct = {
+      ...productMasterForm,
+      id: Date.now(),
+      materialAmount: parseFloat(productMasterForm.materialAmount) || 0
+    };
+    
+    saveProductMaster([...productMaster, newProduct]);
+    setProductMasterForm({
+      productName: '', materialName: '', materialAmount: '', materialUnit: 'kg'
+    });
+    setShowProductMasterForm(false);
+    setEditingProductId(null);
+  };
+
+  const handleProductMasterEdit = (product) => {
+    setEditingProductId(product.id);
+    setProductMasterForm(product);
+    setShowProductMasterForm(true);
+  };
+
+  const handleProductMasterUpdate = () => {
+    const updatedProducts = productMaster.map(p =>
+      p.id === editingProductId ? { ...productMasterForm, id: editingProductId, materialAmount: parseFloat(productMasterForm.materialAmount) || 0 } : p
+    );
+    saveProductMaster(updatedProducts);
+    setEditingProductId(null);
+    setProductMasterForm({
+      productName: '', materialName: '', materialAmount: '', materialUnit: 'kg'
+    });
+    setShowProductMasterForm(false);
+  };
+
+  const handleProductMasterDelete = (id) => {
+    const newProducts = productMaster.filter(p => p.id !== id);
+    saveProductMaster(newProducts);
+    alert('削除しました');
+  };
+
+const loadFromLocalStorage = () => {
     try {
       const materialsData = localStorage.getItem('materials-list');
       if (materialsData) {
@@ -464,10 +566,21 @@ function InventoryManagement() {
       return;
     }
     
+    // 在庫チェック
+    const stockCheck = checkMaterialStock(orderForm.productName, orderForm.quantity);
+    
+    if (!stockCheck.hasStock && stockCheck.warnings.length > 0) {
+      const warningMsg = '⚠️ 在庫警告\n\n' + stockCheck.warnings.join('\n') + '\n\nこのまま登録しますか？';
+      if (!window.confirm(warningMsg)) {
+        return;
+      }
+    }
+    
     const newOrder = {
       ...orderForm,
       id: Date.now(),
-      quantity: parseFloat(orderForm.quantity) || 0
+      quantity: parseFloat(orderForm.quantity) || 0,
+      stockWarning: !stockCheck.hasStock
     };
     
     saveOrders([...orders, newOrder]);
@@ -476,6 +589,10 @@ function InventoryManagement() {
     });
     setShowAddForm(false);
     setEditingId(null);
+    
+    if (stockCheck.hasStock && stockCheck.product) {
+      console.log('✅ 材料在庫OK:', stockCheck.product.materialName);
+    }
   };
 
   const handleOrderEdit = (order) => {
@@ -879,14 +996,174 @@ function InventoryManagement() {
                   onChange={(e) => setSearchTerm(e.target.value)}
                 />
               </div>
-              <button
-                onClick={() => setShowAddForm(!showAddForm)}
-                className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium"
-              >
-                <span className="inline-block w-5 h-5 text-center">➕</span>
-                {activeTab === 'materials' ? '材料を追加' : '注文を追加'}
-              </button>
+              {activeTab !== 'productMaster' && (
+                <button
+                  onClick={() => setShowAddForm(!showAddForm)}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium"
+                >
+                  <span className="inline-block w-5 h-5 text-center">➕</span>
+                  {activeTab === 'materials' ? '材料を追加' : '注文を追加'}
+                </button>
+              )}
+              {activeTab === 'productMaster' && (
+                <button
+                  onClick={() => setShowProductMasterForm(!showProductMasterForm)}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium"
+                >
+                  <span className="inline-block w-5 h-5 text-center">➕</span>
+                  製品マスタを追加
+                </button>
+              )}
             </div>
+
+            {activeTab === 'productMaster' && showProductMasterForm && (
+              <div className="bg-gray-50 p-6 rounded-lg mb-6 border-2 border-blue-200">
+                <h3 className="text-xl font-bold mb-4 text-gray-800">
+                  {editingProductId ? '製品マスタを編集' : '新規製品マスタを追加'}
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      製品名 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={productMasterForm.productName}
+                      onChange={(e) => setProductMasterForm({...productMasterForm, productName: e.target.value})}
+                      placeholder="例: ﾚｲｷﾔｸ ﾌｲﾝ PF2532"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      材料名 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={productMasterForm.materialName}
+                      onChange={(e) => setProductMasterForm({...productMasterForm, materialName: e.target.value})}
+                      placeholder="例: A5052"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      使用量（1個あたり） <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={productMasterForm.materialAmount}
+                      onChange={(e) => setProductMasterForm({...productMasterForm, materialAmount: e.target.value})}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">単位</label>
+                    <select
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={productMasterForm.materialUnit}
+                      onChange={(e) => setProductMasterForm({...productMasterForm, materialUnit: e.target.value})}
+                    >
+                      <option value="kg">kg</option>
+                      <option value="枚">枚</option>
+                      <option value="本">本</option>
+                      <option value="個">個</option>
+                      <option value="m">m</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="mt-4 flex gap-3">
+                  <button
+                    onClick={editingProductId ? handleProductMasterUpdate : handleProductMasterAdd}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2"
+                  >
+                    <span className="inline-block w-5 h-5 text-center">💾</span>
+                    {editingProductId ? '更新' : '追加'}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowProductMasterForm(false);
+                      setEditingProductId(null);
+                      setProductMasterForm({
+                        productName: '', materialName: '', materialAmount: '', materialUnit: 'kg'
+                      });
+                    }}
+                    className="bg-gray-300 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-400"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'productMaster' && !showProductMasterForm && (
+              <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                <div className="p-4 bg-gray-100 border-b">
+                  <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                    <span className="inline-block w-5 h-5 text-center">🔗</span>
+                    製品マスタ一覧 ({productMaster.length}件)
+                  </h2>
+                  <p className="text-sm text-gray-600 mt-2">
+                    製品と使用材料を紐付けて登録します。注文登録時に自動で材料在庫をチェックします。
+                  </p>
+                </div>
+                
+                {productMaster.length === 0 ? (
+                  <div className="p-12 text-center text-gray-500">
+                    <span className="inline-block w-12 h-12 text-center text-4xl">🔗</span>
+                    <p className="text-lg mt-4">登録された製品マスタがありません</p>
+                    <p className="text-sm mt-2">「製品マスタを追加」ボタンから登録してください</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 border-b-2 border-gray-200">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">製品名</th>
+                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">使用材料</th>
+                          <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">使用量（1個あたり）</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">操作</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {productMaster.map((product, index) => (
+                          <tr key={product.id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-gray-900">{product.productName}</div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-700">{product.materialName}</td>
+                            <td className="px-4 py-3 text-right">
+                              <span className="font-bold text-gray-900">{product.materialAmount}</span>
+                              <span className="text-gray-600 ml-1">{product.materialUnit}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <div className="flex gap-2 justify-center">
+                                <button
+                                  onClick={() => handleProductMasterEdit(product)}
+                                  className="text-blue-600 hover:text-blue-800 p-1"
+                                  title="編集"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  onClick={() => handleProductMasterDelete(product.id)}
+                                  className="text-red-600 hover:text-red-800 p-1"
+                                  title="削除"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
 
             {activeTab === 'orders' && !showAddForm && (
               <div className="flex flex-col md:flex-row gap-2">
@@ -1257,9 +1534,14 @@ function InventoryManagement() {
                       </thead>
                       <tbody>
                         {filteredOrders.map((order, index) => (
-                          <tr key={order.id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                          <tr key={order.id} className={`border-b hover:bg-gray-50 ${order.stockWarning ? 'bg-red-50' : (index % 2 === 0 ? 'bg-white' : 'bg-gray-25')}`}>
                             <td className="px-4 py-3">
-                              <div className="font-medium text-gray-900">{order.productName}</div>
+                              <div className="flex items-center gap-2">
+                                {order.stockWarning && (
+                                  <span className="text-red-600" title="材料在庫不足">⚠️</span>
+                                )}
+                                <div className="font-medium text-gray-900">{order.productName}</div>
+                              </div>
                               {order.notes && <div className="text-xs text-gray-500 mt-1">{order.notes}</div>}
                             </td>
                             <td className="px-4 py-3 text-gray-700">{order.customerName || '-'}</td>
