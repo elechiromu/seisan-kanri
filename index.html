@@ -52,10 +52,14 @@ function InventoryManagement() {
   });
   const [showProductMasterForm, setShowProductMasterForm] = useState(false);
   const [editingProductId, setEditingProductId] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage] = useState(30);
-  const [sortBy, setSortBy] = useState('deliveryDate');
-  const [sortOrder, setSortOrder] = useState('asc');
+  
+  // Orders pagination
+  const [currentPageOrders, setCurrentPageOrders] = useState(1);
+  const [itemsPerPageOrders] = useState(30);
+  const [sortByOrders, setSortByOrders] = useState('deliveryDate');
+  const [sortOrderOrders, setSortOrderOrders] = useState('asc');
+  
+  // Materials pagination
   const [currentPageMaterials, setCurrentPageMaterials] = useState(1);
   const [itemsPerPageMaterials] = useState(30);
   const [sortByMaterials, setSortByMaterials] = useState('name');
@@ -696,6 +700,56 @@ const loadFromLocalStorage = () => {
   };
 
   
+  // Materials sort functions
+  const sortMaterials = (materialsToSort) => {
+    return [...materialsToSort].sort((a, b) => {
+      let compareA, compareB;
+      
+      switch (sortByMaterials) {
+        case 'name':
+          compareA = (a.name || '').toLowerCase();
+          compareB = (b.name || '').toLowerCase();
+          break;
+        case 'code':
+          compareA = (a.code || '').toLowerCase();
+          compareB = (b.code || '').toLowerCase();
+          break;
+        case 'quantity':
+          compareA = parseFloat(a.quantity) || 0;
+          compareB = parseFloat(b.quantity) || 0;
+          break;
+        case 'location':
+          compareA = (a.location || '').toLowerCase();
+          compareB = (b.location || '').toLowerCase();
+          break;
+        case 'stockStatus':
+          const statusA = parseFloat(a.quantity) <= parseFloat(a.minStock || 0) ? 0 : 1;
+          const statusB = parseFloat(b.quantity) <= parseFloat(b.minStock || 0) ? 0 : 1;
+          compareA = statusA;
+          compareB = statusB;
+          break;
+        default:
+          compareA = (a.name || '').toLowerCase();
+          compareB = (b.name || '').toLowerCase();
+      }
+      
+      if (compareA < compareB) return sortOrderMaterials === 'asc' ? -1 : 1;
+      if (compareA > compareB) return sortOrderMaterials === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const handleSortMaterials = (newSortBy) => {
+    if (sortByMaterials === newSortBy) {
+      setSortOrderMaterials(sortOrderMaterials === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortByMaterials(newSortBy);
+      setSortOrderMaterials('asc');
+    }
+    setCurrentPageMaterials(1);
+  };
+
+  // Orders sort functions
   const getDeliveryStatusValue = (deliveryDate, status) => {
     if (status === '完了' || status === '出荷済') return 0;
     if (!deliveryDate) return 5;
@@ -714,7 +768,7 @@ const loadFromLocalStorage = () => {
     return [...ordersToSort].sort((a, b) => {
       let compareA, compareB;
       
-      switch (sortBy) {
+      switch (sortByOrders) {
         case 'orderDate':
           compareA = a.orderDate || '';
           compareB = b.orderDate || '';
@@ -740,70 +794,21 @@ const loadFromLocalStorage = () => {
           compareB = b.deliveryDate || '';
       }
       
-      if (compareA < compareB) return sortOrder === 'asc' ? -1 : 1;
-      if (compareA > compareB) return sortOrder === 'asc' ? 1 : -1;
+      if (compareA < compareB) return sortOrderOrders === 'asc' ? -1 : 1;
+      if (compareA > compareB) return sortOrderOrders === 'asc' ? 1 : -1;
       return 0;
     });
   };
 
-  const handleSort = (newSortBy) => {
-    if (sortBy === newSortBy) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+  const handleSortOrders = (newSortBy) => {
+    if (sortByOrders === newSortBy) {
+      setSortOrderOrders(sortOrderOrders === 'asc' ? 'desc' : 'asc');
     } else {
-      setSortBy(newSortBy);
-      setSortOrder('asc');
+      setSortByOrders(newSortBy);
+      setSortOrderOrders('asc');
     }
-    setCurrentPage(1);
+    setCurrentPageOrders(1);
   };
-
-  const sortMaterials = (materialsToSort) => {
-    return [...materialsToSort].sort((a, b) => {
-      let compareA, compareB;
-      
-      switch (sortByMaterials) {
-        case 'name':
-          compareA = a.name || '';
-          compareB = b.name || '';
-          break;
-        case 'code':
-          compareA = a.code || '';
-          compareB = b.code || '';
-          break;
-        case 'quantity':
-          compareA = parseFloat(a.quantity) || 0;
-          compareB = parseFloat(b.quantity) || 0;
-          break;
-        case 'location':
-          compareA = a.location || '';
-          compareB = b.location || '';
-          break;
-        case 'stockStatus':
-          const statusA = parseFloat(a.quantity) <= parseFloat(a.minStock) ? 0 : 1;
-          const statusB = parseFloat(b.quantity) <= parseFloat(b.minStock) ? 0 : 1;
-          compareA = statusA;
-          compareB = statusB;
-          break;
-        default:
-          compareA = a.name || '';
-          compareB = b.name || '';
-      }
-      
-      if (compareA < compareB) return sortOrderMaterials === 'asc' ? -1 : 1;
-      if (compareA > compareB) return sortOrderMaterials === 'asc' ? 1 : -1;
-      return 0;
-    });
-  };
-
-  const handleSortMaterials = (newSortBy) => {
-    if (sortByMaterials === newSortBy) {
-      setSortOrderMaterials(sortOrderMaterials === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortByMaterials(newSortBy);
-      setSortOrderMaterials('asc');
-    }
-    setCurrentPageMaterials(1);
-  };
-
 
 const filteredMaterials = materials.filter(m =>
     m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -823,10 +828,10 @@ const filteredMaterials = materials.filter(m =>
   );
   
   const sortedOrders = sortOrders(filteredOrders);
-  const totalPages = Math.ceil(sortedOrders.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const paginatedOrders = sortedOrders.slice(startIndex, endIndex);
+  const totalPagesOrders = Math.ceil(sortedOrders.length / itemsPerPageOrders);
+  const startIndexOrders = (currentPageOrders - 1) * itemsPerPageOrders;
+  const endIndexOrders = startIndexOrders + itemsPerPageOrders;
+  const paginatedOrders = sortedOrders.slice(startIndexOrders, endIndexOrders);
 
   const lowStockItems = materials.filter(m => m.minStock && parseFloat(m.quantity) <= parseFloat(m.minStock));
   const urgentOrders = orders.filter(o => {
@@ -1291,63 +1296,6 @@ const filteredMaterials = materials.filter(m =>
                     </table>
                   </div>
                 )}
-                
-                {sortedOrders && sortedOrders.length > itemsPerPage && (
-                  <div className="mt-4 flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-gray-50 border-t gap-3">
-                    <div className="text-sm text-gray-700">
-                      {startIndex + 1} - {Math.min(endIndex, sortedOrders.length)} 件 / 全 {sortedOrders.length} 件
-                    </div>
-                    <div className="flex items-center gap-2 flex-wrap justify-center">
-                      <button
-                        onClick={() => setCurrentPage(1)}
-                        disabled={currentPage === 1}
-                        className={`px-3 py-1 rounded text-sm font-medium $${
-                          currentPage === 1
-                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'
-                        }`}
-                      >
-                        最初
-                      </button>
-                      <button
-                        onClick={() => setCurrentPage(currentPage - 1)}
-                        disabled={currentPage === 1}
-                        className={`px-3 py-1 rounded text-sm font-medium $${
-                          currentPage === 1
-                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'
-                        }`}
-                      >
-                        ← 前
-                      </button>
-                      <span className="px-4 py-1 bg-white border rounded text-sm">
-                        {currentPage} / {totalPages}
-                      </span>
-                      <button
-                        onClick={() => setCurrentPage(currentPage + 1)}
-                        disabled={currentPage === totalPages}
-                        className={`px-3 py-1 rounded text-sm font-medium $${
-                          currentPage === totalPages
-                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'
-                        }`}
-                      >
-                        次 →
-                      </button>
-                      <button
-                        onClick={() => setCurrentPage(totalPages)}
-                        disabled={currentPage === totalPages}
-                        className={`px-3 py-1 rounded text-sm font-medium $${
-                          currentPage === totalPages
-                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
-                            : 'bg-blue-600 text-white hover:bg-blue-700'
-                        }`}
-                      >
-                        最後
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
 
@@ -1767,6 +1715,7 @@ const filteredMaterials = materials.filter(m =>
             )}
 
             {activeTab === 'orders' && !showAddForm && (
+
               <div className="bg-white rounded-lg shadow-md overflow-hidden">
                 <div className="p-4 bg-gray-100 border-b">
                   <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
@@ -1775,7 +1724,7 @@ const filteredMaterials = materials.filter(m =>
                   </h2>
                 </div>
                 
-                {filteredOrders.length === 0 ? (
+                {sortedOrders.length === 0 ? (
                   <div className="p-12 text-center text-gray-500">
                     <span className="inline-block w-5 h-5 text-center">📅</span>
                     <p className="text-lg">登録された注文がありません</p>
@@ -1790,23 +1739,23 @@ const filteredMaterials = materials.filter(m =>
                           <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">顧客名</th>
                           <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">数量</th>
                           <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
-                            <button onClick={() => handleSort('orderDate')} className="hover:text-blue-600 mx-auto block">
-                              受注日 {sortBy === 'orderDate' && (sortOrder === 'asc' ? '▲' : '▼')}
+                            <button onClick={() => handleSortOrders('orderDate')} className="hover:text-blue-600 mx-auto block">
+                              受注日 {sortByOrders === 'orderDate' && (sortOrderOrders === 'asc' ? '▲' : '▼')}
                             </button>
                           </th>
                           <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
-                            <button onClick={() => handleSort('deliveryDate')} className="hover:text-blue-600 mx-auto block">
-                              納期 {sortBy === 'deliveryDate' && (sortOrder === 'asc' ? '▲' : '▼')}
+                            <button onClick={() => handleSortOrders('deliveryDate')} className="hover:text-blue-600 mx-auto block">
+                              納期 {sortByOrders === 'deliveryDate' && (sortOrderOrders === 'asc' ? '▲' : '▼')}
                             </button>
                           </th>
                           <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
-                            <button onClick={() => handleSort('status')} className="hover:text-blue-600 mx-auto block">
-                              状態 {sortBy === 'status' && (sortOrder === 'asc' ? '▲' : '▼')}
+                            <button onClick={() => handleSortOrders('status')} className="hover:text-blue-600 mx-auto block">
+                              状態 {sortByOrders === 'status' && (sortOrderOrders === 'asc' ? '▲' : '▼')}
                             </button>
                           </th>
                           <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
-                            <button onClick={() => handleSort('deliveryStatus')} className="hover:text-blue-600 mx-auto block">
-                              納期状況 {sortBy === 'deliveryStatus' && (sortOrder === 'asc' ? '▲' : '▼')}
+                            <button onClick={() => handleSortOrders('deliveryStatus')} className="hover:text-blue-600 mx-auto block">
+                              納期状況 {sortByOrders === 'deliveryStatus' && (sortOrderOrders === 'asc' ? '▲' : '▼')}
                             </button>
                           </th>
                           <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">操作</th>
@@ -1867,6 +1816,63 @@ const filteredMaterials = materials.filter(m =>
                         ))}
                       </tbody>
                     </table>
+                  </div>
+                )}
+                
+                {sortedOrders && sortedOrders.length > itemsPerPageOrders && (
+                  <div className="mt-4 flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-gray-50 border-t gap-3">
+                    <div className="text-sm text-gray-700">
+                      {startIndexOrders + 1} - {Math.min(endIndexOrders, sortedOrders.length)} 件 / 全 {sortedOrders.length} 件
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap justify-center">
+                      <button
+                        onClick={() => setCurrentPageOrders(1)}
+                        disabled={currentPageOrders === 1}
+                        className={`px-3 py-1 rounded text-sm font-medium ${
+                          currentPageOrders === 1
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        最初
+                      </button>
+                      <button
+                        onClick={() => setCurrentPageOrders(currentPageOrders - 1)}
+                        disabled={currentPageOrders === 1}
+                        className={`px-3 py-1 rounded text-sm font-medium ${
+                          currentPageOrders === 1
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        ← 前
+                      </button>
+                      <span className="px-4 py-1 bg-white border rounded text-sm">
+                        {currentPageOrders} / {totalPagesOrders}
+                      </span>
+                      <button
+                        onClick={() => setCurrentPageOrders(currentPageOrders + 1)}
+                        disabled={currentPageOrders === totalPagesOrders}
+                        className={`px-3 py-1 rounded text-sm font-medium ${
+                          currentPageOrders === totalPagesOrders
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        次 →
+                      </button>
+                      <button
+                        onClick={() => setCurrentPageOrders(totalPagesOrders)}
+                        disabled={currentPageOrders === totalPagesOrders}
+                        className={`px-3 py-1 rounded text-sm font-medium ${
+                          currentPageOrders === totalPagesOrders
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        最後
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
