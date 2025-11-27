@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（完全版：クラウド + BOM + ページネーション）</title>
+  <title>生産管理システム（完全版：クラウド + BOM + ページネーション + CSV出力）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -810,6 +810,97 @@ const loadFromLocalStorage = () => {
     setCurrentPageOrders(1);
   };
 
+  // CSV export functions
+  const exportToCSV = (data, filename, headers) => {
+    // BOM for UTF-8 (Excel compatibility)
+    const BOM = '\uFEFF';
+    
+    // Create CSV header
+    let csv = BOM + headers.join(',') + '\n';
+    
+    // Add data rows
+    data.forEach(row => {
+      const values = headers.map(header => {
+        const key = header.toLowerCase().replace(/\s+/g, '');
+        let value = '';
+        
+        // Map Japanese headers to data keys
+        switch(header) {
+          case '材料名': value = row.name || ''; break;
+          case '品番': value = row.code || ''; break;
+          case '数量': value = row.quantity || ''; break;
+          case '単位': value = row.unit || ''; break;
+          case '保管場所': value = row.location || ''; break;
+          case '最低在庫': value = row.minStock || ''; break;
+          case '備考': value = row.notes || ''; break;
+          case '製品名': value = row.productName || ''; break;
+          case '顧客名': value = row.customerName || ''; break;
+          case '受注日': value = row.orderDate || ''; break;
+          case '納期': value = row.deliveryDate || ''; break;
+          case '状態': value = row.status || ''; break;
+          default: value = '';
+        }
+        
+        // Escape commas and quotes
+        if (value.includes(',') || value.includes('"') || value.includes('\n')) {
+          value = '"' + value.replace(/"/g, '""') + '"';
+        }
+        
+        return value;
+      });
+      
+      csv += values.join(',') + '\n';
+    });
+    
+    // Create download link
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportMaterials = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const filename = `在庫データ_${today}.csv`;
+    const headers = ['材料名', '品番', '数量', '単位', '保管場所', '最低在庫', '備考'];
+    
+    exportToCSV(materials, filename, headers);
+    alert(`CSVファイルをダウンロードしました: ${filename}`);
+  };
+
+  const handleExportOrders = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const filename = `納期データ_${today}.csv`;
+    const headers = ['製品名', '顧客名', '数量', '単位', '受注日', '納期', '状態', '備考'];
+    
+    exportToCSV(orders, filename, headers);
+    alert(`CSVファイルをダウンロードしました: ${filename}`);
+  };
+
+  const handleExportProductMaster = () => {
+    const today = new Date().toISOString().split('T')[0];
+    const filename = `製品マスタ_${today}.csv`;
+    const headers = ['製品名', '材料名', '使用量', '単位'];
+    
+    const data = productMaster.map(p => ({
+      productName: p.productName,
+      name: p.materialName,
+      quantity: p.materialAmount,
+      unit: p.materialUnit
+    }));
+    
+    exportToCSV(data, filename, headers);
+    alert(`CSVファイルをダウンロードしました: ${filename}`);
+  };
+
+
 const filteredMaterials = materials.filter(m =>
     m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (m.code && m.code.toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -1132,22 +1223,40 @@ const filteredMaterials = materials.filter(m =>
                 />
               </div>
               {activeTab !== 'productMaster' && (
-                <button
-                  onClick={() => setShowAddForm(!showAddForm)}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium"
-                >
-                  <span className="inline-block w-5 h-5 text-center">➕</span>
-                  {activeTab === 'materials' ? '材料を追加' : '注文を追加'}
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowAddForm(!showAddForm)}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium"
+                  >
+                    <span className="inline-block w-5 h-5 text-center">➕</span>
+                    {activeTab === 'materials' ? '材料を追加' : '注文を追加'}
+                  </button>
+                  <button
+                    onClick={activeTab === 'materials' ? handleExportMaterials : handleExportOrders}
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 font-medium"
+                  >
+                    <span className="inline-block w-5 h-5 text-center">📥</span>
+                    CSV出力
+                  </button>
+                </>
               )}
               {activeTab === 'productMaster' && (
-                <button
-                  onClick={() => setShowProductMasterForm(!showProductMasterForm)}
-                  className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium"
-                >
-                  <span className="inline-block w-5 h-5 text-center">➕</span>
-                  製品マスタを追加
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowProductMasterForm(!showProductMasterForm)}
+                    className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2 font-medium"
+                  >
+                    <span className="inline-block w-5 h-5 text-center">➕</span>
+                    製品マスタを追加
+                  </button>
+                  <button
+                    onClick={handleExportProductMaster}
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 font-medium"
+                  >
+                    <span className="inline-block w-5 h-5 text-center">📥</span>
+                    CSV出力
+                  </button>
+                </>
               )}
             </div>
 
