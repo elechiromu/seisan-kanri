@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（クラウド版 + BOM + ページネーション）</title>
+  <title>生産管理システム（完全版：クラウド + BOM + ページネーション）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -56,6 +56,10 @@ function InventoryManagement() {
   const [itemsPerPage] = useState(30);
   const [sortBy, setSortBy] = useState('deliveryDate');
   const [sortOrder, setSortOrder] = useState('asc');
+  const [currentPageMaterials, setCurrentPageMaterials] = useState(1);
+  const [itemsPerPageMaterials] = useState(30);
+  const [sortByMaterials, setSortByMaterials] = useState('name');
+  const [sortOrderMaterials, setSortOrderMaterials] = useState('asc');
 
 
   // Firebase初期化チェック
@@ -752,11 +756,66 @@ const loadFromLocalStorage = () => {
     setCurrentPage(1);
   };
 
+  const sortMaterials = (materialsToSort) => {
+    return [...materialsToSort].sort((a, b) => {
+      let compareA, compareB;
+      
+      switch (sortByMaterials) {
+        case 'name':
+          compareA = a.name || '';
+          compareB = b.name || '';
+          break;
+        case 'code':
+          compareA = a.code || '';
+          compareB = b.code || '';
+          break;
+        case 'quantity':
+          compareA = parseFloat(a.quantity) || 0;
+          compareB = parseFloat(b.quantity) || 0;
+          break;
+        case 'location':
+          compareA = a.location || '';
+          compareB = b.location || '';
+          break;
+        case 'stockStatus':
+          const statusA = parseFloat(a.quantity) <= parseFloat(a.minStock) ? 0 : 1;
+          const statusB = parseFloat(b.quantity) <= parseFloat(b.minStock) ? 0 : 1;
+          compareA = statusA;
+          compareB = statusB;
+          break;
+        default:
+          compareA = a.name || '';
+          compareB = b.name || '';
+      }
+      
+      if (compareA < compareB) return sortOrderMaterials === 'asc' ? -1 : 1;
+      if (compareA > compareB) return sortOrderMaterials === 'asc' ? 1 : -1;
+      return 0;
+    });
+  };
+
+  const handleSortMaterials = (newSortBy) => {
+    if (sortByMaterials === newSortBy) {
+      setSortOrderMaterials(sortOrderMaterials === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortByMaterials(newSortBy);
+      setSortOrderMaterials('asc');
+    }
+    setCurrentPageMaterials(1);
+  };
+
+
 const filteredMaterials = materials.filter(m =>
     m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     (m.code && m.code.toLowerCase().includes(searchTerm.toLowerCase())) ||
     (m.location && m.location.toLowerCase().includes(searchTerm.toLowerCase()))
   );
+  
+  const sortedMaterials = sortMaterials(filteredMaterials);
+  const totalPagesMaterials = Math.ceil(sortedMaterials.length / itemsPerPageMaterials);
+  const startIndexMaterials = (currentPageMaterials - 1) * itemsPerPageMaterials;
+  const endIndexMaterials = startIndexMaterials + itemsPerPageMaterials;
+  const paginatedMaterials = sortedMaterials.slice(startIndexMaterials, endIndexMaterials);
 
   const filteredOrders = orders.filter(o =>
     o.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1550,11 +1609,11 @@ const filteredMaterials = materials.filter(m =>
                 <div className="p-4 bg-gray-100 border-b">
                   <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
                     <span className="inline-block w-5 h-5 text-center">📦</span>
-                    材料一覧 ({filteredMaterials.length}件)
+                    材料一覧 ({sortedMaterials.length}件)
                   </h2>
                 </div>
                 
-                {filteredMaterials.length === 0 ? (
+                {sortedMaterials.length === 0 ? (
                   <div className="p-12 text-center text-gray-500">
                     <span className="inline-block w-5 h-5 text-center">📦</span>
                     <p className="text-lg">登録された材料がありません</p>
@@ -1565,16 +1624,36 @@ const filteredMaterials = materials.filter(m =>
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b-2 border-gray-200">
                         <tr>
-                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">材料名</th>
-                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">品番</th>
-                          <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">数量</th>
-                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">保管場所</th>
-                          <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">状態</th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
+                            <button onClick={() => handleSortMaterials('name')} className="hover:text-blue-600 mx-auto block">
+                              材料名 {sortByMaterials === 'name' && (sortOrderMaterials === 'asc' ? '▲' : '▼')}
+                            </button>
+                          </th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
+                            <button onClick={() => handleSortMaterials('code')} className="hover:text-blue-600 mx-auto block">
+                              品番 {sortByMaterials === 'code' && (sortOrderMaterials === 'asc' ? '▲' : '▼')}
+                            </button>
+                          </th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
+                            <button onClick={() => handleSortMaterials('quantity')} className="hover:text-blue-600 mx-auto block">
+                              数量 {sortByMaterials === 'quantity' && (sortOrderMaterials === 'asc' ? '▲' : '▼')}
+                            </button>
+                          </th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
+                            <button onClick={() => handleSortMaterials('location')} className="hover:text-blue-600 mx-auto block">
+                              保管場所 {sortByMaterials === 'location' && (sortOrderMaterials === 'asc' ? '▲' : '▼')}
+                            </button>
+                          </th>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
+                            <button onClick={() => handleSortMaterials('stockStatus')} className="hover:text-blue-600 mx-auto block">
+                              状態 {sortByMaterials === 'stockStatus' && (sortOrderMaterials === 'asc' ? '▲' : '▼')}
+                            </button>
+                          </th>
                           <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">操作</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {filteredMaterials.map((material, index) => {
+                        {paginatedMaterials.map((material, index) => {
                           const isLowStock = material.minStock && parseFloat(material.quantity) <= parseFloat(material.minStock);
                           return (
                             <tr key={material.id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
@@ -1625,6 +1704,63 @@ const filteredMaterials = materials.filter(m =>
                         })}
                       </tbody>
                     </table>
+                  </div>
+                )}
+                
+                {sortedMaterials && sortedMaterials.length > itemsPerPageMaterials && (
+                  <div className="mt-4 flex flex-col sm:flex-row items-center justify-between px-4 py-3 bg-gray-50 border-t gap-3">
+                    <div className="text-sm text-gray-700">
+                      {startIndexMaterials + 1} - {Math.min(endIndexMaterials, sortedMaterials.length)} 件 / 全 {sortedMaterials.length} 件
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap justify-center">
+                      <button
+                        onClick={() => setCurrentPageMaterials(1)}
+                        disabled={currentPageMaterials === 1}
+                        className={`px-3 py-1 rounded text-sm font-medium ${
+                          currentPageMaterials === 1
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        最初
+                      </button>
+                      <button
+                        onClick={() => setCurrentPageMaterials(currentPageMaterials - 1)}
+                        disabled={currentPageMaterials === 1}
+                        className={`px-3 py-1 rounded text-sm font-medium ${
+                          currentPageMaterials === 1
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        ← 前
+                      </button>
+                      <span className="px-4 py-1 bg-white border rounded text-sm">
+                        {currentPageMaterials} / {totalPagesMaterials}
+                      </span>
+                      <button
+                        onClick={() => setCurrentPageMaterials(currentPageMaterials + 1)}
+                        disabled={currentPageMaterials === totalPagesMaterials}
+                        className={`px-3 py-1 rounded text-sm font-medium ${
+                          currentPageMaterials === totalPagesMaterials
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        次 →
+                      </button>
+                      <button
+                        onClick={() => setCurrentPageMaterials(totalPagesMaterials)}
+                        disabled={currentPageMaterials === totalPagesMaterials}
+                        className={`px-3 py-1 rounded text-sm font-medium ${
+                          currentPageMaterials === totalPagesMaterials
+                            ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                            : 'bg-blue-600 text-white hover:bg-blue-700'
+                        }`}
+                      >
+                        最後
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
