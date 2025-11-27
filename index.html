@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（完全版：クラウド + BOM + ページネーション + CSV出力）</title>
+  <title>生産管理システム（完全版：クラウド + BOM + ページネーション + CSV + 単価管理）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -44,7 +44,7 @@ function InventoryManagement() {
     name: '', code: '', quantity: '', unit: 'kg', location: '', minStock: '', notes: ''
   });
   const [orderForm, setOrderForm] = useState({
-    productName: '', customerName: '', quantity: '', unit: '個', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
+    productName: '', customerName: '', quantity: '', unit: '個', price: '', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
   });
   const [productMaster, setProductMaster] = useState([]);
   const [productMasterForm, setProductMasterForm] = useState({
@@ -471,6 +471,23 @@ const loadFromLocalStorage = () => {
           status = '出荷済';
         }
         
+        // 単価を抽出 (¥や￥、カンマ区切りの数値を探す)
+        let price = '';
+        const pricePatterns = [
+          /[¥￥]\s*([0-9,]+(?:\.[0-9]+)?)/,  // ¥1,000 or ￥1000
+          /単価[\s:：]*([0-9,]+(?:\.[0-9]+)?)/,  // 単価:1000
+          /([0-9,]+)円/,  // 1000円
+          /\b([0-9]{3,}(?:,[0-9]{3})*)\b/  // 1,000 or 1000 (3桁以上の数値)
+        ];
+        
+        for (const pattern of pricePatterns) {
+          const priceMatch = content.match(pattern);
+          if (priceMatch) {
+            price = priceMatch[1].replace(/,/g, '');
+            break;
+          }
+        }
+        
         const order = {
           id: Date.now() + Math.random(),
           orderNumber: orderNumber,
@@ -479,6 +496,7 @@ const loadFromLocalStorage = () => {
           customerName: customerName,
           quantity: quantity,
           unit: '個',
+          price: price,
           orderDate: orderDate,
           deliveryDate: deliveryDate,
           status: status,
@@ -491,6 +509,7 @@ const loadFromLocalStorage = () => {
         console.log('  製品名:', order.productName);
         console.log('  顧客名:', order.customerName);
         console.log('  数量:', order.quantity, order.unit);
+        console.log('  単価:', order.price ? '¥' + parseFloat(order.price).toLocaleString() : '未設定');
         console.log('  納期:', order.deliveryDate);
         console.log('  受注日:', order.orderDate);
         console.log('  状態:', order.status);
@@ -597,7 +616,7 @@ const loadFromLocalStorage = () => {
     
     saveOrders([...orders, newOrder]);
     setOrderForm({
-      productName: '', customerName: '', quantity: '', unit: '個', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
+      productName: '', customerName: '', quantity: '', unit: '個', price: '', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
     });
     setShowAddForm(false);
     setEditingId(null);
@@ -620,7 +639,7 @@ const loadFromLocalStorage = () => {
     saveOrders(updatedOrders);
     setEditingId(null);
     setOrderForm({
-      productName: '', customerName: '', quantity: '', unit: '個', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
+      productName: '', customerName: '', quantity: '', unit: '個', price: '', orderDate: '', deliveryDate: '', status: '製造中', notes: ''
     });
     setShowAddForm(false);
   };
@@ -835,6 +854,10 @@ const loadFromLocalStorage = () => {
           case '備考': value = row.notes || ''; break;
           case '製品名': value = row.productName || ''; break;
           case '顧客名': value = row.customerName || ''; break;
+          case '単価': value = row.price || ''; break;
+          case '金額': 
+            value = row.price && row.quantity ? (parseFloat(row.price) * parseFloat(row.quantity)).toString() : ''; 
+            break;
           case '受注日': value = row.orderDate || ''; break;
           case '納期': value = row.deliveryDate || ''; break;
           case '状態': value = row.status || ''; break;
@@ -878,7 +901,7 @@ const loadFromLocalStorage = () => {
   const handleExportOrders = () => {
     const today = new Date().toISOString().split('T')[0];
     const filename = `納期データ_${today}.csv`;
-    const headers = ['製品名', '顧客名', '数量', '単位', '受注日', '納期', '状態', '備考'];
+    const headers = ['製品名', '顧客名', '数量', '単位', '単価', '金額', '受注日', '納期', '状態', '備考'];
     
     exportToCSV(orders, filename, headers);
     alert(`CSVファイルをダウンロードしました: ${filename}`);
@@ -1593,6 +1616,16 @@ const filteredMaterials = materials.filter(m =>
                     </select>
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">単価（円）</label>
+                    <input
+                      type="number"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                      value={orderForm.price}
+                      onChange={(e) => setOrderForm({...orderForm, price: e.target.value})}
+                      placeholder="例: 5000"
+                    />
+                  </div>
+                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">受注日</label>
                     <input
                       type="text"
@@ -1965,6 +1998,8 @@ const filteredMaterials = materials.filter(m =>
                           <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">製品名</th>
                           <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">顧客名</th>
                           <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">数量</th>
+                          <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">単価</th>
+                          <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">金額</th>
                           <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
                             <button onClick={() => handleSortOrders('orderDate')} className="hover:text-blue-600 mx-auto block">
                               受注日 {sortByOrders === 'orderDate' && (sortOrderOrders === 'asc' ? '▲' : '▼')}
@@ -2004,6 +2039,12 @@ const filteredMaterials = materials.filter(m =>
                             <td className="px-4 py-3 text-right">
                               <span className="font-bold text-gray-900">{order.quantity || '-'}</span>
                               {order.quantity && <span className="text-gray-600 ml-1">{order.unit}</span>}
+                            </td>
+                            <td className="px-4 py-3 text-right text-gray-700">
+                              {order.price ? `¥${parseFloat(order.price).toLocaleString()}` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-right font-bold text-gray-900">
+                              {order.price && order.quantity ? `¥${(parseFloat(order.price) * parseFloat(order.quantity)).toLocaleString()}` : '-'}
                             </td>
                             <td className="px-4 py-3 text-gray-700">{formatDate(order.orderDate)}</td>
                             <td className="px-4 py-3 text-gray-900 font-medium">{formatDate(order.deliveryDate)}</td>
