@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（完全版：クラウド + BOM + ページネーション + CSV + 単価管理）</title>
+  <title>生産管理システム（完全版：クラウド + BOM + ページネーション + CSV + 単価 + 一括削除）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -52,6 +52,7 @@ function InventoryManagement() {
   });
   const [showProductMasterForm, setShowProductMasterForm] = useState(false);
   const [editingProductId, setEditingProductId] = useState(null);
+  const [selectedOrders, setSelectedOrders] = useState([]);
   
   // Orders pagination
   const [currentPageOrders, setCurrentPageOrders] = useState(1);
@@ -923,6 +924,65 @@ const loadFromLocalStorage = () => {
     alert(`CSVファイルをダウンロードしました: ${filename}`);
   };
 
+  // Bulk delete functions
+  const handleSelectOrder = (orderId) => {
+    setSelectedOrders(prev => {
+      if (prev.includes(orderId)) {
+        return prev.filter(id => id !== orderId);
+      } else {
+        return [...prev, orderId];
+      }
+    });
+  };
+
+  const handleSelectAllOrders = (checked) => {
+    if (checked) {
+      setSelectedOrders(paginatedOrders.map(order => order.id));
+    } else {
+      setSelectedOrders([]);
+    }
+  };
+
+  const handleBulkDeleteOrders = () => {
+    if (selectedOrders.length === 0) {
+      alert('削除する注文を選択してください');
+      return;
+    }
+    
+    const confirmMsg = `選択した${selectedOrders.length}件の注文を削除しますか？\n\nこの操作は取り消せません。`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    
+    const newOrders = orders.filter(order => !selectedOrders.includes(order.id));
+    saveOrders(newOrders);
+    setSelectedOrders([]);
+    alert(`${selectedOrders.length}件の注文を削除しました`);
+  };
+
+  const handleDeleteAllOrders = () => {
+    if (orders.length === 0) {
+      alert('削除する注文がありません');
+      return;
+    }
+    
+    const confirmMsg = `全ての注文（${orders.length}件）を削除しますか？\n\n⚠️ この操作は取り消せません！\n\n本当に全削除してよろしいですか？`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+    
+    // Double confirmation for safety
+    const doubleConfirm = window.confirm(`最終確認：\n\n${orders.length}件の注文を完全に削除します。\n\nよろしいですか？`);
+    if (!doubleConfirm) {
+      return;
+    }
+    
+    saveOrders([]);
+    setSelectedOrders([]);
+    alert('全ての注文を削除しました');
+  };
+
+
 
 const filteredMaterials = materials.filter(m =>
     m.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -1387,6 +1447,14 @@ const filteredMaterials = materials.filter(m =>
                     <table className="w-full">
                       <thead className="bg-gray-50 border-b-2 border-gray-200">
                         <tr>
+                          <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
+                            <input
+                              type="checkbox"
+                              checked={paginatedOrders.length > 0 && paginatedOrders.every(order => selectedOrders.includes(order.id))}
+                              onChange={(e) => handleSelectAllOrders(e.target.checked)}
+                              className="w-4 h-4 cursor-pointer"
+                            />
+                          </th>
                           <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">製品名</th>
                           <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">使用材料</th>
                           <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">使用量（1個あたり）</th>
@@ -1433,25 +1501,60 @@ const filteredMaterials = materials.filter(m =>
 
 
             {activeTab === 'orders' && !showAddForm && (
-              <div className="flex flex-col md:flex-row gap-2">
-                <button
-                  onClick={() => setShowPasteArea(true)}
-                  className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 font-medium"
-                >
-                  <span className="inline-block w-5 h-5 text-center">⬆️</span>
-                  e商買データを直接貼り付け
-                </button>
+              <div className="space-y-3">
+                <div className="flex flex-col md:flex-row gap-2">
+                  <button
+                    onClick={() => setShowPasteArea(true)}
+                    className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 font-medium"
+                  >
+                    <span className="inline-block w-5 h-5 text-center">⬆️</span>
+                    e商買データを直接貼り付け
+                  </button>
+                  
+                  <label className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 font-medium cursor-pointer">
+                    <span className="inline-block w-5 h-5 text-center">⬆️</span>
+                    ファイルから読み込み
+                    <input
+                      type="file"
+                      accept=".txt,.csv"
+                      onChange={handleFileSelect}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
                 
-                <label className="bg-purple-600 text-white px-6 py-2 rounded-lg hover:bg-purple-700 flex items-center justify-center gap-2 font-medium cursor-pointer">
-                  <span className="inline-block w-5 h-5 text-center">⬆️</span>
-                  ファイルから読み込み
-                  <input
-                    type="file"
-                    accept=".txt,.csv"
-                    onChange={handleFileSelect}
-                    className="hidden"
-                  />
-                </label>
+                {sortedOrders.length > 0 && (
+                  <div className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <span className="text-sm text-gray-700">
+                      {selectedOrders.length > 0 ? (
+                        <strong>選択中: {selectedOrders.length}件</strong>
+                      ) : (
+                        <span>注文を選択してください</span>
+                      )}
+                    </span>
+                    <div className="flex gap-2 ml-auto">
+                      <button
+                        onClick={handleBulkDeleteOrders}
+                        disabled={selectedOrders.length === 0}
+                        className={`px-4 py-2 rounded-lg flex items-center gap-2 font-medium ${
+                          selectedOrders.length === 0
+                            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                            : 'bg-red-600 text-white hover:bg-red-700'
+                        }`}
+                      >
+                        <span className="inline-block w-5 h-5 text-center">🗑️</span>
+                        選択削除
+                      </button>
+                      <button
+                        onClick={handleDeleteAllOrders}
+                        className="bg-red-700 text-white px-4 py-2 rounded-lg hover:bg-red-800 flex items-center gap-2 font-medium"
+                      >
+                        <span className="inline-block w-5 h-5 text-center">🗑️</span>
+                        全削除
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -2026,6 +2129,14 @@ const filteredMaterials = materials.filter(m =>
                       <tbody>
                         {paginatedOrders.map((order, index) => (
                           <tr key={order.id} className={`border-b hover:bg-gray-50 ${order.stockWarning ? 'bg-red-50' : (index % 2 === 0 ? 'bg-white' : 'bg-gray-25')}`}>
+                            <td className="px-4 py-3 text-center">
+                              <input
+                                type="checkbox"
+                                checked={selectedOrders.includes(order.id)}
+                                onChange={() => handleSelectOrder(order.id)}
+                                className="w-4 h-4 cursor-pointer"
+                              />
+                            </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center gap-2">
                                 {order.stockWarning && (
