@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（完全版：e商買データ解析修正済み）</title>
+  <title>生産管理システム（完全版：e商買データ解析対応）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -463,7 +463,6 @@ const loadFromLocalStorage = () => {
         console.log('  顧客名:', order.customerName);
         console.log('  数量:', order.quantity, order.unit);
         console.log('  単価:', order.price ? '¥' + parseFloat(order.price).toLocaleString() : '未設定');
-        console.log('  金額:', order.price && order.quantity ? '¥' + (parseFloat(order.price) * parseFloat(order.quantity)).toLocaleString() : '-');
         console.log('  受注日:', order.orderDate);
         console.log('  納期:', order.deliveryDate);
         
@@ -1014,9 +1013,6 @@ const loadFromLocalStorage = () => {
           case '製品名': value = row.productName || ''; break;
           case '顧客名': value = row.customerName || ''; break;
           case '単価': value = row.price || ''; break;
-          case '金額': 
-            value = row.price && row.quantity ? (parseFloat(row.price) * parseFloat(row.quantity)).toString() : ''; 
-            break;
           case '受注日': value = row.orderDate || ''; break;
           case '納期': value = row.deliveryDate || ''; break;
           case '状態': value = row.status || ''; break;
@@ -1060,7 +1056,7 @@ const loadFromLocalStorage = () => {
   const handleExportOrders = () => {
     const today = new Date().toISOString().split('T')[0];
     const filename = `納期データ_${today}.csv`;
-    const headers = ['製品名', '顧客名', '数量', '単位', '単価', '金額', '受注日', '納期', '状態', '備考'];
+    const headers = ['製品名', '顧客名', '数量', '単位', '単価', '受注日', '納期', '状態', '備考'];
     
     exportToCSV(orders, filename, headers);
     alert(`CSVファイルをダウンロードしました: ${filename}`);
@@ -2381,7 +2377,6 @@ const filteredMaterials = materials.filter(m =>
                           <th className="px-4 py-3 text-left text-sm font-bold text-gray-700">顧客名</th>
                           <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">数量</th>
                           <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">単価</th>
-                          <th className="px-4 py-3 text-right text-sm font-bold text-gray-700">金額</th>
                           <th className="px-4 py-3 text-center text-sm font-bold text-gray-700">
                             <button onClick={() => handleSortOrders('orderDate')} className="hover:text-blue-600 mx-auto block">
                               受注日 {sortByOrders === 'orderDate' && (sortOrderOrders === 'asc' ? '▲' : '▼')}
@@ -2432,9 +2427,6 @@ const filteredMaterials = materials.filter(m =>
                             </td>
                             <td className="px-4 py-3 text-right text-gray-700">
                               {order.price ? `¥${parseFloat(order.price).toLocaleString()}` : '-'}
-                            </td>
-                            <td className="px-4 py-3 text-right font-bold text-gray-900">
-                              {order.price && order.quantity ? `¥${(parseFloat(order.price) * parseFloat(order.quantity)).toLocaleString()}` : '-'}
                             </td>
                             <td className="px-4 py-3 text-gray-700">{formatDate(order.orderDate)}</td>
                             <td className="px-4 py-3 text-gray-900 font-medium">{formatDate(order.deliveryDate)}</td>
