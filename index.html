@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（完全版：e商買データ解析対応）</title>
+  <title>生産管理システム（完全版：エラー修正済み）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -321,41 +321,8 @@ const loadFromLocalStorage = () => {
     window.location.reload();
   };
 
-  const handleFileSelect = (event) => {
-    const file = event.target.files[0];
-    if (!file) {
-      console.log('ファイルが選択されていません');
-      return;
-    }
-
-    console.log('ファイル選択成功:', file.name);
-    
-    const reader = new FileReader();
-    
-    reader.onerror = () => {
-      alert('ファイルの読み込みに失敗しました');
-    };
-    
-    reader.onload = (e) => {
-      processImportedText(e.target.result);
-    };
-    
-    reader.readAsText(file, 'UTF-8');
-    event.target.value = '';
-  };
-
-  const handlePasteImport = () => {
-    if (!pastedText.trim()) {
-      alert('テキストを貼り付けてください');
-      return;
-    }
-    setIsProcessing(true);
-    setTimeout(() => {
-      processImportedText(pastedText);
-      setIsProcessing(false);
-    }, 100);
-  };
-
+  
+  
   const processImportedText = (text) => {
     try {
       console.log('========================================');
