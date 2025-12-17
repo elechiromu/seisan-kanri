@@ -3,11 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>生産管理システム（完全版：全エラー修正済み）</title>
+  <title>生産管理システム（完全版：通知機能付き）</title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- EmailJS SDK for email notifications -->
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -54,6 +56,18 @@ function InventoryManagement() {
   const [editingProductId, setEditingProductId] = useState(null);
   const [selectedOrders, setSelectedOrders] = useState([]);
   
+  // Notification settings
+  const [notificationEnabled, setNotificationEnabled] = useState(() => {
+    const saved = localStorage.getItem('notificationEnabled');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+  const [emailAddresses, setEmailAddresses] = useState(() => {
+    const saved = localStorage.getItem('emailAddresses');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [lastNotificationCheck, setLastNotificationCheck] = useState(null);
+  const [showNotificationSettings, setShowNotificationSettings] = useState(false);
+  
   // Orders pagination
   const [currentPageOrders, setCurrentPageOrders] = useState(1);
   const [itemsPerPageOrders] = useState(30);
@@ -79,6 +93,36 @@ function InventoryManagement() {
       loadFromLocalStorage();
     }
   }, []);
+
+
+  // Auto-check for upcoming deadlines every 5 minutes
+  useEffect(() => {
+    if (!notificationEnabled) return;
+    
+    // Check immediately on mount
+    const timer = setTimeout(() => {
+      checkUpcomingDeadlines();
+    }, 3000); // Wait 3 seconds after load
+    
+    // Then check every 5 minutes
+    const interval = setInterval(() => {
+      checkUpcomingDeadlines();
+    }, 5 * 60 * 1000); // 5 minutes
+    
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [orders, notificationEnabled, emailAddresses]);
+
+  // Save notification settings to localStorage
+  useEffect(() => {
+    localStorage.setItem('notificationEnabled', JSON.stringify(notificationEnabled));
+  }, [notificationEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('emailAddresses', JSON.stringify(emailAddresses));
+  }, [emailAddresses]);
 
   const initializeFirebase = async (config) => {
     try {
@@ -1046,6 +1090,118 @@ const loadFromLocalStorage = () => {
     alert(`${invalidOrders.length}件の異常なデータを削除しました`);
   };
 
+  // Notification functions
+  const checkUpcomingDeadlines = () => {
+    if (!notificationEnabled) return;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const threeDaysLater = new Date(today);
+    threeDaysLater.setDate(threeDaysLater.getDate() + 3);
+    
+    const upcomingOrders = orders.filter(order => {
+      if (order.status === '完了' || order.status === '出荷済') return false;
+      if (!order.deliveryDate) return false;
+      
+      const deliveryParts = order.deliveryDate.split('/');
+      if (deliveryParts.length !== 3) return false;
+      
+      const year = parseInt('20' + deliveryParts[0]);
+      const month = parseInt(deliveryParts[1]) - 1;
+      const day = parseInt(deliveryParts[2]);
+      
+      const deliveryDate = new Date(year, month, day);
+      
+      return deliveryDate <= threeDaysLater && deliveryDate >= today;
+    });
+    
+    if (upcomingOrders.length > 0) {
+      // Show browser notification
+      showBrowserNotification(upcomingOrders);
+      
+      // Send email notification
+      if (emailAddresses.length > 0) {
+        sendEmailNotification(upcomingOrders);
+      }
+      
+      setLastNotificationCheck(new Date().toISOString());
+    }
+  };
+
+  const showBrowserNotification = (orders) => {
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        const notification = new Notification('🔔 納期間近の注文通知', {
+          body: `納期3日以内の注文が${orders.length}件あります`,
+          icon: 'https://cdn-icons-png.flaticon.com/512/1827/1827336.png',
+          requireInteraction: true
+        });
+        
+        notification.onclick = () => {
+          window.focus();
+          setActiveTab('orders');
+        };
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            showBrowserNotification(orders);
+          }
+        });
+      }
+    }
+  };
+
+  const sendEmailNotification = async (orders) => {
+    // EmailJS configuration (user needs to set this up)
+    const serviceId = localStorage.getItem('emailjs_service_id');
+    const templateId = localStorage.getItem('emailjs_template_id');
+    const publicKey = localStorage.getItem('emailjs_public_key');
+    
+    if (!serviceId || !templateId || !publicKey) {
+      console.log('EmailJS not configured. Skipping email notification.');
+      return;
+    }
+    
+    try {
+      const emailContent = orders.map((order, index) => {
+        const daysUntil = Math.ceil((new Date(order.deliveryDate) - new Date()) / (1000 * 60 * 60 * 24));
+        return `${index + 1}. ${order.productName}
+   顧客: ${order.customerName || '-'}
+   数量: ${order.quantity || '-'}${order.unit || ''}
+   納期: ${order.deliveryDate}（あと${daysUntil}日）
+   状態: ${order.status}`;
+      }).join('\n\n');
+      
+      const emailParams = {
+        to_email: emailAddresses.join(', '),
+        order_count: orders.length,
+        order_details: emailContent,
+        system_url: window.location.href
+      };
+      
+      // Note: EmailJS library needs to be loaded
+      if (typeof emailjs !== 'undefined') {
+        await emailjs.send(serviceId, templateId, emailParams, publicKey);
+        console.log('✅ Email notification sent successfully');
+      }
+    } catch (error) {
+      console.error('❌ Failed to send email notification:', error);
+    }
+  };
+
+  const requestNotificationPermission = async () => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        alert('✅ ブラウザ通知が有効になりました');
+      } else {
+        alert('⚠️ ブラウザ通知が拒否されました');
+      }
+    }
+  };
+
+
 
 
 
@@ -1095,6 +1251,13 @@ const filteredMaterials = materials.filter(m =>
             </div>
             <div className="flex items-center gap-4">
               <button
+                onClick={() => setShowNotificationSettings(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-purple-500 bg-opacity-80 rounded-lg hover:bg-opacity-100 transition-colors"
+              >
+                <span className="inline-block w-5 h-5 text-center">🔔</span>
+                <span className="text-sm">通知設定</span>
+              </button>
+              <button
                 onClick={() => setShowFirebaseSetup(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-white bg-opacity-20 rounded-lg hover:bg-opacity-30 transition-colors"
               >
@@ -1136,6 +1299,152 @@ const filteredMaterials = materials.filter(m =>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Notification Settings Modal */}
+        {showNotificationSettings && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full">
+              <div className="p-6 border-b">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-block w-6 h-6 text-center text-xl">🔔</span>
+                    <h3 className="text-xl font-bold text-gray-900">通知設定</h3>
+                  </div>
+                  <button
+                    onClick={() => setShowNotificationSettings(false)}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <span className="inline-block w-6 h-6 text-center text-xl">✕</span>
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                {/* Enable/Disable Notifications */}
+                <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <h4 className="font-bold text-gray-900">通知を有効にする</h4>
+                    <p className="text-sm text-gray-600">納期3日前の注文を自動検出して通知します</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={notificationEnabled}
+                      onChange={(e) => setNotificationEnabled(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                  </label>
+                </div>
+
+                {/* Browser Notification */}
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="font-bold text-blue-900 flex items-center gap-2">
+                        <span>💻</span>
+                        ブラウザ通知
+                      </h4>
+                      <p className="text-sm text-blue-800 mt-1">
+                        デスクトップ右下に通知を表示（システムを開いている時のみ）
+                      </p>
+                      <p className="text-xs text-blue-600 mt-1">
+                        現在の状態: {Notification.permission === 'granted' ? '✅ 有効' : 
+                                    Notification.permission === 'denied' ? '❌ 拒否' : '⚠️ 未設定'}
+                      </p>
+                    </div>
+                    {Notification.permission !== 'granted' && (
+                      <button
+                        onClick={requestNotificationPermission}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 whitespace-nowrap"
+                      >
+                        許可する
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Email Notification */}
+                <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                  <h4 className="font-bold text-green-900 flex items-center gap-2 mb-3">
+                    <span>📧</span>
+                    メール通知
+                  </h4>
+                  
+                  <div className="space-y-3">
+                    {emailAddresses.map((email, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <input
+                          type="email"
+                          value={email}
+                          onChange={(e) => {
+                            const newEmails = [...emailAddresses];
+                            newEmails[index] = e.target.value;
+                            setEmailAddresses(newEmails);
+                          }}
+                          placeholder="example@company.com"
+                          className="flex-1 px-3 py-2 border border-green-300 rounded-lg focus:ring-2 focus:ring-green-500"
+                        />
+                        <button
+                          onClick={() => {
+                            setEmailAddresses(emailAddresses.filter((_, i) => i !== index));
+                          }}
+                          className="px-3 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600"
+                        >
+                          削除
+                        </button>
+                      </div>
+                    ))}
+                    
+                    <button
+                      onClick={() => setEmailAddresses([...emailAddresses, ''])}
+                      className="w-full px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center justify-center gap-2"
+                    >
+                      <span>➕</span>
+                      メールアドレスを追加
+                    </button>
+                  </div>
+
+                  <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded">
+                    <p className="text-xs text-yellow-800">
+                      ⚠️ <strong>注意:</strong> メール送信には別途EmailJSの設定が必要です。
+                      <br />
+                      設定方法はコンソール（F12）でご確認いただくか、お問い合わせください。
+                    </p>
+                  </div>
+                </div>
+
+                {/* Test Notification */}
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <button
+                    onClick={() => {
+                      const testOrders = orders.filter(o => o.status !== '完了' && o.status !== '出荷済').slice(0, 3);
+                      if (testOrders.length > 0) {
+                        showBrowserNotification(testOrders);
+                        alert('テスト通知を送信しました！');
+                      } else {
+                        alert('テスト用の注文データがありません');
+                      }
+                    }}
+                    className="w-full px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"
+                  >
+                    <span>🧪</span>
+                    通知をテスト
+                  </button>
+                </div>
+              </div>
+              
+              <div className="p-6 border-t bg-gray-50">
+                <button
+                  onClick={() => setShowNotificationSettings(false)}
+                  className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold"
+                >
+                  保存して閉じる
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {showFirebaseSetup && (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-auto">
